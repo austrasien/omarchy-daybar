@@ -358,16 +358,19 @@ test("historyBars crosses a month", () => {
   assert.deepStrictEqual(Model.historyBars([], 2, new Date(2026, 2, 1, 12).getTime()).map(b => b.date), ["2026-02-28", "2026-03-01"])
 })
 
-test("the bar flies steadily, and flattens against the wall", () => {
+test("the bar brakes near the walls and flattens against them", () => {
+  const nearWall = Model.bounce(0.62).at - Model.bounce(0.6).at
+  const midFlight = Model.bounce(0.33).at - Model.bounce(0.31).at
+  assert.ok(nearWall < midFlight / 2)
+
   assert.equal(Model.bounce(0).at, 0)
-  assert.equal(Model.bounce(0.375).at, 0.5)
-  assert.equal(Model.bounce(0.1875).at, 0.25)
-  assert.equal(Model.bounce(0.375).scale, 1)
-  const press = Model.bounce(0.84375)
+  assert.equal(Model.bounce(0.32).at, 0.5)
+  assert.equal(Model.bounce(0.32).scale, 1)
+  const press = Model.bounce(0.775)
   assert.equal(press.at, 1)
   assert.ok(Math.abs(press.scale - 0.2) < 1e-9)
   assert.ok(Math.abs(press.girth - 1) < 1e-9)
-  assert.equal(Model.bounce(1.84375).at, 0)
+  assert.equal(Model.bounce(1.775).at, 0)
 })
 
 test("the bar springs off the wall longer, and settles in flight", () => {
@@ -376,7 +379,7 @@ test("the bar springs off the wall longer, and settles in flight", () => {
 })
 
 test("the bar's shape does not jump as it touches or leaves a wall", () => {
-  assert.ok(Math.abs(Model.bounce(0.7499).scale - Model.bounce(0.7501).scale) < 0.01)
+  assert.ok(Math.abs(Model.bounce(0.6399).scale - Model.bounce(0.6401).scale) < 0.01)
   assert.ok(Math.abs(Model.bounce(0.9999).scale - Model.bounce(1).scale) < 0.01)
   assert.ok(Math.abs(Model.bounce(0.9999).girth - Model.bounce(1).girth) < 0.01)
 })
