@@ -70,6 +70,9 @@ Item {
   readonly property int deployX: stripWidth - deployWidth
   readonly property int iconX: deployX + 3
   readonly property real backingWidth: railWidth + (deployWidth - railWidth) * deploySeg(0, 0.35)
+  // The windows' cells grow with it, inside its edge, the icons in them.
+  readonly property real cellWidth: backingWidth - 1 - 3 * deploySeg(0, 0.35)
+  readonly property real iconCenterX: stripWidth - 1 - cellWidth / 2 - 11
   readonly property int edgeGap: Style.gapsOut * 2 + 2
   readonly property string barPosition: shell && shell.barConfig ? String(shell.barConfig.position || "top") : "top"
   function barSizeOn(name) { return shell && shell.bar && !shell.bar.barHidden ? shell.bar.barSizeFor(name) : 0 }
@@ -1025,8 +1028,8 @@ Item {
           // The current desk while it holds no window.
           Rectangle {
             visible: !!desk.info && desk.info.count === 0
-            x: root.railX
-            width: root.railWidth - 1
+            x: root.stripWidth - 1 - root.cellWidth
+            width: root.cellWidth
             height: parent.height
             radius: 2
             color: "transparent"
@@ -1037,6 +1040,7 @@ Item {
           // A window being dragged over this desk.
           Rectangle {
             visible: desk.dropTarget
+            z: 3
             x: root.iconX - 1
             width: root.stripWidth - x
             height: parent.height
@@ -1076,19 +1080,10 @@ Item {
               Behavior on height { NumberAnimation { duration: root.dur(260); easing.type: Easing.OutCubic } }
 
               Rectangle {
-                id: hoverRow
-                visible: cell.hovered && root.deploy > 0
-                x: root.iconX - 1
-                width: root.railX - x
-                height: parent.height
-                color: Qt.alpha(root.hud, 0.2)
-              }
-
-              Rectangle {
                 id: block
                 anchors.right: parent.right
                 anchors.rightMargin: 1
-                width: cell.warning ? root.railWidth + 4 : root.railWidth - 1
+                width: cell.warning ? root.railWidth + 4 : root.cellWidth
                 height: parent.height
                 radius: 1
                 clip: true
@@ -1103,7 +1098,11 @@ Item {
                 border.width: cell.waiting || cell.done || cell.hovered || desk.current ? 0 : 1
                 border.color: root.mixColor(root.grey, Qt.rgba(0, 0, 0, 1), desk.darkness * 0.6)
 
-                Behavior on width { NumberAnimation { duration: root.dur(120); easing.type: Easing.OutCubic } }
+                // For a warning only: the deploy already moves it frame by frame.
+                Behavior on width {
+                  enabled: root.deploy === 0
+                  NumberAnimation { duration: root.dur(120); easing.type: Easing.OutCubic }
+                }
 
                 // An agent at work: a white bar going up and down the cell,
                 // from a random place.
@@ -1155,7 +1154,7 @@ Item {
 
               Image {
                 visible: root.deploy > 0 && !cell.more && cell.info !== null && cell.info.icon !== ""
-                x: root.iconX + (1 - opacity) * 8
+                x: root.iconCenterX + (1 - opacity) * 8
                 anchors.verticalCenter: parent.verticalCenter
                 width: 22
                 height: 22
@@ -1166,7 +1165,7 @@ Item {
               }
               Text {
                 visible: root.deploy > 0 && cell.more
-                x: root.iconX
+                x: root.iconCenterX
                 width: 22
                 anchors.verticalCenter: parent.verticalCenter
                 horizontalAlignment: Text.AlignHCenter
