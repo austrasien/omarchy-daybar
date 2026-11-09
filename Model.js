@@ -213,6 +213,25 @@ function sweep(clock) {
   return t <= 1 ? t : 2 - t
 }
 
+// The white bar of a working agent, for a clock running from 0 to 2: a ball
+// thrown from wall to wall. It leaves fast, hangs in the middle, stretches as
+// it speeds into the far wall, flattens against it, and springs off the other
+// way. `at` is 0 at the top and 1 at the bottom, `scale` its height's factor.
+function bounce(clock) {
+  var t = ((clock % 2) + 2) % 2
+  var down = t < 1
+  var u = down ? t : t - 1
+  var flight = 0.82
+  if (u >= flight) {
+    var q = (u - flight) / (1 - flight)
+    return { at: down ? 1 : 0, scale: 0.3 + 1.15 * Math.pow(Math.abs(2 * q - 1), 1.2) }
+  }
+  var c = 2 * u / flight - 1
+  var far = Math.pow(Math.abs(c), 2.2)
+  var pos = 0.5 + 0.5 * (c < 0 ? -far : far)
+  return { at: down ? pos : 1 - pos, scale: 1 + 0.45 * far }
+}
+
 // Strongest agent state across a set of window addresses.
 function strongestState(addresses, markers) {
   var best = ""
@@ -781,6 +800,7 @@ if (typeof module !== "undefined") {
     deskAt: deskAt,
     windowStates: windowStates,
     sweep: sweep,
+    bounce: bounce,
     strongestState: strongestState,
     appIdCandidates: appIdCandidates,
     webAppHint: webAppHint,

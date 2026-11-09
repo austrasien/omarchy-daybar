@@ -357,3 +357,22 @@ test("historyBars has one bar a day, today last, missing days at zero", () => {
 test("historyBars crosses a month", () => {
   assert.deepStrictEqual(Model.historyBars([], 2, new Date(2026, 2, 1, 12).getTime()).map(b => b.date), ["2026-02-28", "2026-03-01"])
 })
+
+test("the bar flies from wall to wall, flattens, and comes back", () => {
+  assert.equal(Model.bounce(0).at, 0)
+  assert.ok(Math.abs(Model.bounce(0.41).at - 0.5) < 0.01)
+  assert.equal(Model.bounce(0.91).at, 1)
+  assert.ok(Math.abs(Model.bounce(0.91).scale - 0.3) < 0.01)
+  assert.equal(Model.bounce(1.91).at, 0)
+  assert.ok(Math.abs(Model.bounce(1.91).scale - 0.3) < 0.01)
+})
+
+test("the bar's height does not jump when it hits or leaves a wall", () => {
+  assert.ok(Math.abs(Model.bounce(0.8199).scale - Model.bounce(0.82).scale) < 0.02)
+  assert.ok(Math.abs(Model.bounce(0.9999).scale - Model.bounce(1).scale) < 0.02)
+})
+
+test("bounce wraps its clock", () => {
+  assert.deepEqual(Model.bounce(2.5), Model.bounce(0.5))
+  assert.deepEqual(Model.bounce(-0.5), Model.bounce(1.5))
+})

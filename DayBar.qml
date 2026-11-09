@@ -922,7 +922,7 @@ Item {
   property real workClock: 0
   Timer {
     id: workTimer
-    interval: 100
+    interval: 50
     running: (root.anyWorking || root.anyWaiting || root.anyTagMoving) && root.animate && win.visible && !root.covered
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
@@ -1457,13 +1457,14 @@ Item {
                   NumberAnimation { duration: root.dur(120); easing.type: Easing.OutCubic }
                 }
 
-                // An agent at work: a white bar going up and down the cell,
-                // from a random place.
+                // An agent at work: a white bar bouncing from wall to wall of
+                // the cell, from a random place.
                 Rectangle {
+                  readonly property var ball: visible ? Model.bounce(root.workClock + cell.barPhase) : ({ at: 0, scale: 1 })
                   visible: cell.working && workTimer.running
-                  y: Model.sweep(root.workClock + cell.barPhase) * (block.height - height)
+                  y: ball.at * (block.height - height)
                   width: parent.width
-                  height: 10
+                  height: Math.min(block.height, 10 * ball.scale)
                   color: root.nowColor
                   opacity: 0.8
                 }
