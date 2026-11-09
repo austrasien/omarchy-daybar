@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "austraz.daybar",
+  "name": "Day bar",
+  "version": "0.1.0",
+  "author": "austrasien",
+  "license": "MIT",
+  "description": "HUD-style rail on the right edge of the screen: the open workspaces, their windows and what their coding agents are doing",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "DayBar.qml"
+  }
+}

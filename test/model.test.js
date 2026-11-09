@@ -1,0 +1,149 @@
+// Checks for Model.js, the day bar's pure helpers: node --test test/*.test.js
+const test = require("node:test")
+const assert = require("node:assert/strict")
+const Model = require("../Model.js")
+
+const win = (address, x = 0, y = 0) => ({ address, appId: "app", icon: "", at: [x, y] })
+
+test("normalizeConfig: the shared duties stay off by default", () => {
+  const c = Model.normalizeConfig({})
+  assert.equal(c.visible, true)
+  assert.equal(c.autoCompact, false)
+  assert.equal(c.leds, false)
+  assert.equal(c.railWidth, 0)
+})
+
+test("split: equal parts that end exactly at the total", () => {
+  const parts = Model.split(100, 3, 2)
+  assert.equal(parts.length, 3)
+  assert.equal(parts[0].y, 0)
+  const last = parts[2]
+  assert.equal(last.y + last.height, 100)
+  assert.ok(Math.abs(parts[0].height - parts[1].height) <= 1)
+  assert.deepEqual(Model.split(100, 0, 2), [])
+})
+
+test("deskOrder: the scratchpad comes first", () => {
+  const ids = [{ id: 3 }, { id: -98 }, { id: 1 }].sort(Model.deskOrder).map((d) => d.id)
+  assert.deepEqual(ids, [-98, 1, 3])
+})
+
+test("windowOrder: left to right, then top to bottom", () => {
+  const order = [win("c", 900, 0), win("b", 0, 500), win("a", 0, 0)].sort(Model.windowOrder).map((w) => w.address)
+  assert.deepEqual(order, ["a", "b", "c"])
+})
+
+test("deskLayout: desks share the rail equally whatever their windows", () => {
+  const layout = Model.deskLayout([
+    { id: 1, windows: [win("a")] },
+    { id: 2, windows: [win("b"), win("c"), win("d")] }
+  ], 603, { gap: 3 })
+  assert.equal(layout[0].height, 300)
+  assert.equal(layout[1].height, 300)
+  assert.equal(layout[1].y, 303)
+  assert.equal(layout[1].cells.length, 3)
+  assert.equal(layout[1].cells[2].y + layout[1].cells[2].height, 300)
+})
+
+test("deskLayout: a window opening only recuts its own desk", () => {
+  const desks = (n) => [
+    { id: 1, windows: [win("a")] },
+    { id: 2, windows: Array.from({ length: n }, (_, i) => win("w" + i)) }
+  ]
+  const before = Model.deskLayout(desks(1), 600, {})
+  const after = Model.deskLayout(desks(2), 600, {})
+  assert.deepEqual(after[0], before[0])
+  assert.equal(after[1].y, before[1].y)
+})
+
+test("deskLayout: too many windows end in a +n cell", () => {
+  const windows = Array.from({ length: 6 }, (_, i) => win("w" + i))
+  const [desk] = Model.deskLayout([{ id: 1, windows }], 69, { minCell: 22, cellGap: 1 })
+  assert.equal(desk.cells.length, 3)
+  const more = desk.cells[2]
+  assert.equal(more.more, true)
+  assert.equal(more.count, 4)
+  assert.deepEqual(more.hidden, ["w2", "w3", "w4", "w5"])
+})
+
+test("deskLayout: an empty current desk has no cell, the scratchpad reads 0", () => {
+  const layout = Model.deskLayout([{ id: -98, windows: [win("a")] }, { id: 2, current: true, windows: [] }], 200, {})
+  assert.equal(layout[0].label, "0")
+  assert.equal(layout[1].current, true)
+  assert.deepEqual(layout[1].cells, [])
+})
+
+test("deskAt: finds the desk under a height, gaps go to the desk above", () => {
+  const layout = [{ id: 1, y: 0 }, { id: 2, y: 303 }]
+  assert.equal(Model.deskAt(layout, 10).id, 1)
+  assert.equal(Model.deskAt(layout, 301).id, 1)
+  assert.equal(Model.deskAt(layout, 303).id, 2)
+})
+
+test("windowStates: an urgent window reads as waiting", () => {
+  assert.deepEqual(Model.windowStates({ a: "done", b: "working" }, { a: true }), { a: "waiting", b: "working" })
+})
+
+test("sweep: goes down then back up", () => {
+  assert.equal(Model.sweep(0), 0)
+  assert.equal(Model.sweep(1), 1)
+  assert.equal(Model.sweep(1.5), 0.5)
+  assert.equal(Model.sweep(2), 0)
+})
+
+test("agents: strongest state on a window, pinned window wins", () => {
+  const windows = [{ address: "0xA", pid: 10 }, { address: "0xB", pid: 10 }]
+  const agents = {
+    s1: { state: "working", pids: [10], address: "b" },
+    s2: { state: "waiting", pids: [10], address: "b" }
+  }
+  assert.deepEqual(Model.agentWindowStates(agents, windows), { b: "waiting" })
+})
+
+test("pruneDeadAgents: dead processes go, whatever their state", () => {
+  const agents = { a: { state: "working", pids: [5] }, b: { state: "idle", pids: [6] }, c: { state: "done", pids: [7] } }
+  assert.deepEqual(Object.keys(Model.pruneDeadAgents(agents, [7])), ["c"])
+})
+
+test("agentProcessIds: every agent, each process once", () => {
+  const agents = { a: { state: "idle", pids: [9, 2] }, b: { state: "working", pids: [5] }, c: { state: "done", pids: [5] } }
+  assert.deepEqual(Model.agentProcessIds(agents), [5, 9])
+})
+
+test("waitingSpan: from the first waiting window to the last, +n cells included", () => {
+  const layout = [
+    { y: 0, cells: [{ address: "a", y: 0, height: 100 }] },
+    { y: 200, cells: [{ address: "b", y: 50, height: 50 }, { more: true, hidden: ["c", "d"], address: "", y: 101, height: 49 }] }
+  ]
+  assert.deepEqual(Model.waitingSpan(layout, { b: "waiting" }), { y: 250, height: 50 })
+  assert.deepEqual(Model.waitingSpan(layout, { a: "waiting", d: "waiting" }), { y: 0, height: 350 })
+  assert.equal(Model.waitingSpan(layout, { a: "working" }), null)
+})
+
+test("backgroundCandidates: only resting agents, first two pids", () => {
+  const agents = {
+    a: { state: "done", pids: [10, 11, 1081] },
+    b: { state: "working", pids: [20, 21] },
+    c: { state: "idle", pids: [11, 30] }
+  }
+  assert.deepEqual(Model.backgroundCandidates(agents), [10, 11, 30])
+})
+
+test("withBackground: a resting agent with a shell left running counts as working", () => {
+  const agents = { a: { state: "done", pids: [10, 11], address: "x" }, b: { state: "done", pids: [20, 21] } }
+  const out = Model.withBackground(agents, { 11: true })
+  assert.equal(out.a.state, "working")
+  assert.equal(out.a.address, "x")
+  assert.equal(out.b.state, "done")
+  assert.equal(agents.a.state, "done")
+})
+
+test("deskDarkness: grey for 2 min, black at 1 h", () => {
+  assert.equal(Model.deskDarkness(60), 0)
+  assert.equal(Model.deskDarkness(3600), 1)
+})
+
+test("compactionPlan: closes the gaps", () => {
+  const plan = Model.compactionPlan([{ id: 1, name: "1", windows: 1 }, { id: 4, name: "4", windows: 2 }])
+  assert.deepEqual(plan, [{ from: 4, to: 2 }])
+})

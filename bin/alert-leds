@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Alert LEDs for agents (Caps Lock + Framework power/fingerprint ring).
+# From Omarchy Spaces' spaces-caps-blink (MIT, (c) 2026 Tornike Gomareli).
+# It keeps Spaces' lock and want files, so while both plugins run a single
+# worker drives the LEDs and they never fight.
+# One worker holds the flock and follows
+# $XDG_RUNTIME_DIR/spaces-caps-led.want:
+#   blink  pulse until the want file changes
+#   on     stay lit (re-apply: i8042 / Hyprland reset Caps to the real
+#          Caps state, which is off because Caps is Compose)
+#   off    turn both off and exit
+#   auto   Caps off; fingerprint back to EC auto (or solid on if trigger
+#          is not writable). Used when Agent status is disabled.
+# Later on/off/blink/auto calls only write the want file if a worker is live.
+set -euo pipefail
+
+CMD=${1:-off}
+case $CMD in
+  on | off | blink | flash | auto) ;;
+  *)
+    echo "usage: alert-leds on|off|blink|auto" >&2
+    exit 2
+    ;;
+esac
+[[ $CMD == flash ]] && CMD=blink
+
+RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
+LOCK="$RUNTIME/spaces-caps-blink.lock"
+WANT="$RUNTIME/spaces-caps-led.want"
+
+want_set() { printf '%s\n' "$1" >"$WANT"; }
+want_get() {
+  if [[ -r $WANT ]]; then
+    tr -d '\n' <"$WANT"
+  else
+    printf '%s' off
+  fi
+}
+
+if [[ -n ${SPACES_CAPS_LED:-} ]]; then
+  caps_device=$SPACES_CAPS_LED
+else
+  shopt -s nullglob
+  caps_leds=(/sys/class/leds/input*::capslock)
+  shopt -u nullglob
+  if ((${#caps_leds[@]} > 0)); then
+    caps_device=$(basename "${caps_leds[0]}")
+  else
+    caps_device=
+  fi
+fi
+
+if [[ ${SPACES_FP_LED+x} ]]; then
+  fp_device=${SPACES_FP_LED}
+else
+  fp_device=
+  if [[ -d /sys/class/leds/chromeos:white:power ]]; then
+    fp_device=chromeos:white:power
+  fi
+fi
+[[ -n $fp_device && -d /sys/class/leds/$fp_device ]] || fp_device=
+
+[[ -n $caps_device || -n $fp_device ]] || exit 0
+
+led() {
+  [[ -n $caps_device ]] || return 0
+  /usr/bin/brightnessctl -c leds -d "$caps_device" -q set "$1" >/dev/null 2>&1 || true
+}
+
+# brightnessctl cannot open this node (sysfs brightness reads EOF). logind
+# SetBrightness still writes it, and that drops chromeos-auto to none.
+fp() {
+  [[ -n $fp_device ]] || return 0
+  local val=$1 trig=/sys/class/leds/$fp_device/trigger
+  if [[ -w $trig ]]; then
+    printf 'none\n' >"$trig" 2>/dev/null || true
+  fi
+  busctl call org.freedesktop.login1 /org/freedesktop/login1/session/auto \
+    org.freedesktop.login1.Session SetBrightness ssu leds "$fp_device" "$val" \
+    >/dev/null 2>&1 || true
+}
+
+fp_auto() {
+  [[ -n $fp_device ]] || return 0
+  local trig=/sys/class/leds/$fp_device/trigger
+  if [[ -w $trig ]]; then
+    printf 'chromeos-auto\n' >"$trig" 2>/dev/null || true
+    return 0
+  fi
+  fp 100
+}
+
+set_leds() {
+  case $1 in
+    on)
+      led 1
+      fp 100
+      ;;
+    off)
+      led 0
+      fp 0
+      ;;
+    auto)
+      led 0
+      fp_auto
+      ;;
+  esac
+}
+
+want_set "$CMD"
+
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
+cleanup() {
+  case $(want_get) in
+    on | blink) set_leds on ;;
+    auto) set_leds auto ;;
+    *) set_leds off ;;
+  esac
+}
+trap cleanup EXIT
+
+while true; do
+  case $(want_get) in
+    blink)
+      set_leds on
+      sleep 0.35
+      [[ $(want_get) == blink ]] || continue
+      set_leds off
+      sleep 0.35
+      ;;
+    on)
+      set_leds on
+      sleep 0.15
+      ;;
+    auto)
+      set_leds auto
+      break
+      ;;
+    *)
+      set_leds off
+      break
+      ;;
+  esac
+done
