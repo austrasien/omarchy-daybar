@@ -214,26 +214,27 @@ function sweep(clock) {
 }
 
 // The white bar of a working agent, for a clock running from 0 to 2: a tennis
-// ball between two walls. It slows as it nears a wall; touching it, it stays
-// there a moment, flattening and bulging, then springs out longer than it
-// was and off the other way, settling as it flies. `at` is 0 at the top and 1 at the bottom, `scale` the
-// factor of its height and `girth` the factor of its width.
+// ball between two walls. It shoots off a wall, loses speed on the way to the
+// next, flattens against it as it gives way, and springs out at once, longer
+// than it was. `at` is 0 at the top and 1 at the bottom, `scale` the factor of
+// its height and `girth` the factor of its width.
 function bounce(clock) {
   var t = ((clock % 2) + 2) % 2
   var down = t < 1
   var u = down ? t : t - 1
-  var flight = 0.64
+  var flight = 0.74
   var spring = 0.35   // how much longer than at rest it springs off a wall
   if (u < flight) {
     var v = u / flight
-    // Steady in the middle, braking as it nears a wall and picking up off it.
-    var pos = 0.4 * v + 0.6 * v * v * (3 - 2 * v)
+    var pos = 0.55 * v + 0.45 * (1 - Math.pow(1 - v, 2.4))
     var settling = Math.max(0, 1 - v / 0.2)
     return { at: down ? pos : 1 - pos, scale: 1 + spring * settling, girth: 0.65 }
   }
   var q = (u - flight) / (1 - flight)
-  var press = Math.sin(Math.PI * Math.min(q / 0.75, 1))
-  var leaving = Math.max(0, (q - 0.75) / 0.25)
+  // Slow to flatten, quick to spring back.
+  var press = q < 0.55 ? Math.sin(Math.PI / 2 * q / 0.55)
+    : q < 0.8 ? Math.cos(Math.PI / 2 * (q - 0.55) / 0.25) : 0
+  var leaving = Math.max(0, (q - 0.8) / 0.2)
   return { at: down ? 1 : 0, scale: 1 - 0.8 * press + spring * leaving, girth: 0.65 + 0.35 * press }
 }
 
