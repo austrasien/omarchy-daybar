@@ -924,16 +924,16 @@ Item {
   // starts by pressing Super, and those must not make it flash.
   property bool superOpen: false
   onNumbersShownChanged: {
-    if (numbersShown) { superDelay.restart(); return }
+    if (numbersShown) { superDelay.restart(); superSafety.restart(); return }
     superDelay.stop()
     superSafety.stop()
     superOpen = false
   }
-  // Moving between desks with Super held keeps it open. The Super release
-  // may never reach us after a Super+key chord and the key state cannot be
-  // read, so it closes by itself once the moves stop.
+  // It stays open until Super is released, across moves between desks. A
+  // lost release must not leave it open for good: it closes after a while
+  // without a move.
   function keepSuperOpen() { if (numbersShown) superSafety.restart() }
-  Timer { id: superSafety; interval: 1000; onTriggered: root.numbersShown = false }
+  Timer { id: superSafety; interval: 30000; onTriggered: root.numbersShown = false }
   Timer { id: superDelay; interval: 180; onTriggered: root.superOpen = root.numbersShown }
   readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen
 
