@@ -1187,7 +1187,7 @@ Item {
                 x: Math.max(0, block.x - width - 3)
                 y: Math.max(0, cell.height - height) * Model.sweep(root.workClock)
                 width: tagText.width + 8
-                height: 15
+                height: Math.max(15, tagText.height + 4)
                 radius: 2
                 color: root.hudBlack
                 border.width: 1
@@ -1197,6 +1197,8 @@ Item {
                   id: tagText
                   anchors.centerIn: parent
                   width: Math.min(implicitWidth, 240)
+                  wrapMode: Text.Wrap
+                  maximumLineCount: 3
                   elide: Text.ElideRight
                   text: cell.tagTitle !== "" ? cell.tagTitle : (desk.info ? desk.info.label : "") + " " + cell.tagWord
                   textFormat: Text.PlainText
