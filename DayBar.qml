@@ -186,11 +186,49 @@ Item {
   }
   property real dischargeWatts: 0
   readonly property real batteryEnergy: battery ? Number(battery.energy || 0) : 0
+  readonly property real batteryCapacity: battery ? Number(battery.energyCapacity || 0) : 0
   readonly property real batteryAfterSeconds: batteryMode === "estimate" && dischargeWatts > 0 ? batteryEnergy / dischargeWatts * 3600 : 0
   readonly property bool batteryBlinks: batteryMode === "charging"
     || (batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10)
   // Green to yellow, orange and red with the level on battery, green otherwise.
   readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
+  // What the battery's card shows, as in austraz.power; read only while the
+  // pointer is on the battery.
+  property string hoveredZone: ""
+  property var wattHistory: []
+  property var topCpu: []
+  property string batteryCycles: ""
+  readonly property int wattWindowMs: 900000
+  readonly property var wattScale: Model.wattExtent(wattHistory)
+  readonly property var wattWindow: Model.trafficWindow(wattHistory, wattWindowMs, Date.now())
+  readonly property var cpuSegments: Model.cpuBarSegments(topCpu)
+  FileView {
+    id: wattFile
+    path: (Quickshell.env("XDG_STATE_HOME") || root.home + "/.local/state") + "/omarchy/power/watt-history.json"
+    printErrors: false
+    onLoaded: root.wattHistory = Model.parseWattHistory(text(), root.wattWindowMs, Date.now())
+  }
+  Process {
+    id: cpuProc
+    command: ["ps", "-eo", "pcpu=,pid=,comm=", "--sort=-pcpu"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.topCpu = Model.parseTopCpu(text, 5) }
+  }
+  Process {
+    id: cycleProc
+    command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/cycle_count"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.batteryCycles = String(text).trim() }
+  }
+  Timer {
+    interval: 5000
+    running: root.hoveredZone === "battery"
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      wattFile.reload()
+      if (!cpuProc.running) cpuProc.running = true
+      if (root.batteryCycles === "" && !cycleProc.running) cycleProc.running = true
+    }
+  }
   readonly property var batteryRows: {
     var rows = []
     if (batteryMode === "discharging" && batterySeconds > 0) rows.push({ k: "LEFT", v: Model.durationText(batterySeconds) })
@@ -198,6 +236,10 @@ Item {
     if (batteryMode === "estimate" && batteryAfterSeconds > 0) rows.push({ k: "LASTS", v: Model.durationText(batteryAfterSeconds) })
     var watts = battery ? Math.abs(Number(battery.changeRate || 0)) : 0
     if (watts > 0.5) rows.push({ k: "RATE", v: Math.round(watts) + " W" })
+    if (batteryCapacity > 0) rows.push({ k: "SIZE", v: Math.round(batteryCapacity) + " Wh" })
+    if (batteryCycles !== "") rows.push({ k: "CYCLES", v: batteryCycles })
+    var health = battery ? Number(battery.healthPercentage || 0) : 0
+    if (health > 0) rows.push({ k: "HEALTH", v: Math.round(health) + " %" })
     return rows
   }
   Process {
@@ -235,6 +277,8 @@ Item {
   // than 15 minutes fades the gauges and sends no alert.
 
   property var usageLimits: []
+  property var usageHistory: []
+  property var usageRecent: []
   property real usageUpdatedAt: 0
   readonly property bool usageStale: usageUpdatedAt > 0 && nowSec - usageUpdatedAt > 900
   readonly property var gauges: Model.usageGauges(usageLimits, nowSec)
@@ -248,6 +292,8 @@ Item {
       try {
         var d = JSON.parse(String(text() || "{}"))
         root.usageLimits = Array.isArray(d.limits) ? d.limits : []
+        root.usageHistory = Array.isArray(d.historyDays) ? d.historyDays : []
+        root.usageRecent = Array.isArray(d.recentDays) ? d.recentDays : []
         root.usageUpdatedAt = Model.isoEpoch(d.updatedAt)
       } catch (e) {}
     }
@@ -1465,10 +1511,73 @@ Item {
           title: root.batteryPercent >= 0 ? root.batteryPercent + " %" : ""
           rows: root.batteryRows
           ink: root.batteryColor
+          zone: "battery"
           zoneY: batteryZone.y
           zoneHeight: batteryZone.height
+
+          HudSection {
+            visible: root.wattHistory.length > 1
+            title: root.batteryMode === "discharging" ? "POWER DRAW" : "CHARGE RATE"
+            note: "max " + Model.formatWatts(root.wattScale.peak)
+          }
+          PowerChart {
+            visible: root.wattHistory.length > 1
+            width: parent.width
+            height: 64
+            points: root.hoveredZone === "battery" ? root.wattHistory : []
+            t0: root.wattWindow.t0
+            t1: root.wattWindow.t1
+            wattsMax: root.wattScale.axis
+            lineColor: root.hud.toString()
+            fillColor: Qt.alpha(root.hud, 0.16).toString()
+            gridColor: Qt.alpha(Color.foreground, 0.12).toString()
+            fontFamily: Style.fontFamily
+          }
+          HudSection { visible: root.cpuSegments.length > 0; title: "TOP CPU" }
+          Row {
+            id: cpuBar
+            visible: root.cpuSegments.length > 0
+            width: parent.width
+            height: 10
+            spacing: 2
+            Repeater {
+              model: root.cpuSegments
+              delegate: Rectangle {
+                required property var modelData
+                width: Math.max(2, (cpuBar.width - 2 * (root.cpuSegments.length - 1)) * modelData.share)
+                height: parent.height
+                color: modelData.color
+              }
+            }
+          }
+          Repeater {
+            model: root.cpuSegments
+            delegate: Item {
+              id: cpuRow
+              required property var modelData
+              width: 272
+              height: 16
+              Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 8; height: 8; color: cpuRow.modelData.color }
+              HudLabel {
+                x: 14
+                width: parent.width - 70
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideRight
+                text: cpuRow.modelData.name + (cpuRow.modelData.pids > 1 ? " ×" + cpuRow.modelData.pids : "")
+                color: root.bright
+                font.bold: false
+              }
+              HudLabel {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: Math.round(cpuRow.modelData.cpu) + " %"
+                color: root.bright
+                font.bold: false
+              }
+            }
+          }
         }
-        ZoneClick { command: ["omarchy-shell", "austraz.power", "toggle"] }
+        ZoneClick { zone: "battery"; command: ["omarchy-shell", "austraz.power", "toggle"] }
       }
 
       // The ticks around the desks.
@@ -1545,10 +1654,13 @@ Item {
               title: gauge.g.known ? Math.round(gauge.g.used * 100) + " % → " + Math.round(gauge.g.forecast * 100) + " %" : ""
               rows: root.gaugeRows(gauge.g)
               ink: gauge.ink
+              zone: gauge.index === 0 ? "weekly" : "fable"
               zoneY: aiZone.y + gauge.y
               zoneHeight: gauge.height
+
+              AiGraphs {}
             }
-            ZoneClick { command: ["omarchy-shell", "omarchy.agents", "toggle"] }
+            ZoneClick { zone: gauge.index === 0 ? "weekly" : "fable"; command: ["omarchy-shell", "omarchy.agents", "toggle"] }
           }
         }
         // The tick between the two limits.
@@ -1593,7 +1705,8 @@ Item {
     property string status: ""
     property string title: ""
     property var rows: []
-    width: 288
+    default property alias content: hudExtra.data
+    width: 300
     height: hudBody.implicitHeight + 28
     color: root.hudBlack
     border.width: 1
@@ -1664,6 +1777,12 @@ Item {
           HudLabel { text: modelData.v; color: root.bright; font.bold: false }
         }
       }
+
+      Column {
+        id: hudExtra
+        width: parent.width
+        spacing: 6
+      }
     }
 
     // The reticle.
@@ -1714,24 +1833,111 @@ Item {
     Rectangle { x: parent.onRight ? parent.width - 2 : 0; width: 2; height: parent.height; color: root.bright }
   }
 
-  // A gauge's card, beside the open bar.
+  // A section of a card: a heading and something on its right.
+  component HudSection: Item {
+    property string title: ""
+    property string note: ""
+    width: parent.width
+    height: sectionTitle.implicitHeight + 4
+    HudLabel { id: sectionTitle; y: 4; text: parent.title; color: root.hud }
+    HudLabel { y: 4; anchors.right: parent.right; text: parent.note; color: root.dim; font.bold: false }
+  }
+
+  // Claude's usage: the last 90 days, then tokens by day, as in My Agents.
+  component AiGraphs: Column {
+    id: aiGraphs
+    readonly property var bars: visible ? Model.historyBars(root.usageHistory, 90, root.now.getTime()) : []
+    readonly property real peak: Math.max(1, bars.reduce(function(m, b) { return Math.max(m, b.tokens) }, 0))
+    readonly property real total: bars.reduce(function(sum, b) { return sum + b.tokens }, 0)
+    readonly property real dayPeak: Math.max(1, root.usageRecent.reduce(function(m, d) { return Math.max(m, Number(d.messageCount) || 0) }, 0))
+    readonly property string todayIso: Model.isoDay(root.now)
+    width: parent.width
+    spacing: 4
+
+    HudSection { title: "LAST 90 DAYS"; note: "total " + Model.tokenText(aiGraphs.total) }
+    Item {
+      id: historyPlot
+      width: parent.width
+      height: 48
+      Repeater {
+        model: aiGraphs.bars
+        delegate: Rectangle {
+          required property var modelData
+          required property int index
+          readonly property real slot: historyPlot.width / 90
+          x: index * slot
+          y: historyPlot.height - height
+          width: Math.max(1, slot - 1)
+          height: modelData.tokens > 0 ? Math.max(2, historyPlot.height * modelData.tokens / aiGraphs.peak) : 1
+          color: modelData.tokens > 0 ? (modelData.today ? root.bright : root.dim) : Qt.alpha(Color.foreground, 0.1)
+        }
+      }
+    }
+
+    HudSection { title: "TOKENS BY DAY" }
+    Repeater {
+      model: root.usageRecent
+      delegate: Item {
+        id: dayRow
+        required property var modelData
+        readonly property real count: Number(modelData.messageCount) || 0
+        readonly property bool today: String(modelData.date) === aiGraphs.todayIso
+        width: aiGraphs.width
+        height: 16
+        HudLabel {
+          width: 44
+          anchors.verticalCenter: parent.verticalCenter
+          text: root.weekDays[new Date(String(dayRow.modelData.date) + "T12:00:00").getDay()]
+          color: dayRow.today ? root.bright : root.dim
+        }
+        Rectangle {
+          x: 48
+          anchors.verticalCenter: parent.verticalCenter
+          width: parent.width - 48 - 52
+          height: 6
+          color: Qt.alpha(Color.foreground, 0.1)
+          Rectangle {
+            width: parent.width * dayRow.count / aiGraphs.dayPeak
+            height: parent.height
+            color: dayRow.today ? root.bright : root.hud
+          }
+        }
+        HudLabel {
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          text: Model.tokenText(dayRow.count)
+          color: root.bright
+          font.bold: false
+        }
+      }
+    }
+  }
+
+  // A gauge's card, beside the open bar, while the pointer is on that gauge.
   component ZoneTag: HudCard {
+    property string zone: ""
     property real zoneY: 0
     property real zoneHeight: 0
-    visible: root.deploy > 0 && title !== ""
-    opacity: root.wave(zoneY + zoneHeight / 2)
+    visible: root.deploy > 0 && root.hoveredZone === zone && title !== ""
     x: root.stripWidth - root.backingWidth - width - 7
-    y: (zoneHeight - height) / 2
+    // Stays on the screen, whatever the card's height.
+    y: Math.max(6 - zoneY, Math.min(strip.height - zoneY - height - 6, (zoneHeight - height) / 2))
     z: 3
   }
 
-  // A click on a gauge opens its panel.
+  // A gauge's area: a click opens its panel, and hovering shows its card.
   component ZoneClick: MouseArea {
     property var command: []
+    property string zone: ""
     anchors.right: parent.right
     width: root.deployed ? root.deployWidth : root.railWidth
     height: parent.height
+    hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
+    onContainsMouseChanged: {
+      if (containsMouse) root.hoveredZone = zone
+      else if (root.hoveredZone === zone) root.hoveredZone = ""
+    }
     onClicked: Quickshell.execDetached(command)
   }
 
@@ -1747,6 +1953,7 @@ Item {
     function hideNumbers(): void { root.numbersShown = false }
     function agent(session: string, state: string, pids: string): void { root.applyAgent(session, state, pids) }
     function peek(on: string): void { root.peeking = on === "on" }
+    function card(zone: string): void { root.hoveredZone = zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
     function snapshot(path: string): void { strip.grabToImage(function(r) { r.saveToFile(path) }) }
   }

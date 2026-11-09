@@ -26,8 +26,9 @@ the time, this one the space.
 ## Battery and limits
 
 The rail gives 60 % of its height to the desks, 20 % to the battery above them
-and 20 % to Claude's limits below them. Hover or hold Super for the values; a
-click opens the Power panel or My Agents.
+and 20 % to Claude's limits below them. Hovering one of them shows its card, with
+the battery's details, power chart and busiest apps, or Claude's last 90 days and
+tokens by day; a click opens the Power panel or My Agents.
 
 - **Battery**, filling from the top to the current level, ticks counting the
   hours. Charging, a blinking green with the hours to full in the empty part.

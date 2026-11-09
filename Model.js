@@ -534,8 +534,207 @@ function gaugeHue(gauge) {
   return (1 - t) / 3
 }
 
+// Battery details, as in austraz.power.
+var CPU_BAR_COLORS = ["#5aa8ff", "#ff7a59", "#3dd68c", "#e0c35a", "#c084fc"]
+
+function parseTopCpu(raw, limit) {
+  var max = Math.max(1, Number(limit) || 5)
+  var lines = String(raw || "").split("\n")
+  var byName = ({})
+  var order = []
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (!line) continue
+    var cpu = NaN
+    var name = ""
+    var m = line.match(/^(\d+(?:\.\d+)?)\s+(\S+)\s+(.+)$/)
+    if (m) {
+      cpu = Number(m[1])
+      name = m[3].trim()
+    } else {
+      m = line.match(/^(\d+(?:\.\d+)?)\s+(.+)$/)
+      if (!m) continue
+      cpu = Number(m[1])
+      name = m[2].trim()
+    }
+    if (!name || !isFinite(cpu) || cpu < 0) continue
+
+    if (!byName[name]) {
+      byName[name] = { name: name, cpu: 0, pids: 0 }
+      order.push(name)
+    }
+    byName[name].cpu += cpu
+    byName[name].pids += 1
+  }
+
+  var merged = []
+  for (var j = 0; j < order.length; j++) merged.push(byName[order[j]])
+  merged.sort(function(a, b) { return b.cpu - a.cpu })
+
+  var out = []
+  for (var k = 0; k < merged.length && out.length < max; k++) {
+    out.push({
+      name: merged[k].name,
+      cpu: merged[k].cpu,
+      pid: "",
+      pids: merged[k].pids
+    })
+  }
+  return out
+}
+
+function cpuBarSegments(topCpu, colors) {
+  var list = Array.isArray(topCpu) ? topCpu : []
+  var palette = Array.isArray(colors) && colors.length > 0 ? colors : CPU_BAR_COLORS
+  var total = 0
+  var i
+  for (i = 0; i < list.length; i++) {
+    var cpu = Number(list[i] && list[i].cpu)
+    if (isFinite(cpu) && cpu > 0) total += cpu
+  }
+  if (!(total > 0)) total = 1
+
+  var out = []
+  for (i = 0; i < list.length; i++) {
+    var entry = list[i] || {}
+    var value = Number(entry.cpu)
+    if (!isFinite(value) || value < 0) value = 0
+    var pids = Number(entry.pids)
+    if (!isFinite(pids) || pids < 1) pids = 1
+    out.push({
+      name: String(entry.name || "—"),
+      pid: String(entry.pid || ""),
+      pids: pids,
+      cpu: value,
+      share: value / total,
+      color: palette[i % palette.length]
+    })
+  }
+  return out
+}
+
+function pruneWattHistory(points, windowMs, nowMs) {
+  var list = Array.isArray(points) ? points.slice() : []
+  var window = Math.max(1000, Number(windowMs) || 900000)
+  var now = Number(nowMs)
+  if (!isFinite(now) || now <= 0) now = Date.now()
+  var cutoff = now - window
+  while (list.length > 0 && Number(list[0].t) < cutoff) list.shift()
+  return list
+}
+
+function parseWattHistory(raw, windowMs, nowMs) {
+  var text = String(raw || "").trim()
+  if (!text) return []
+  var data
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    return []
+  }
+  if (!Array.isArray(data)) return []
+  var out = []
+  for (var i = 0; i < data.length; i++) {
+    var p = data[i]
+    if (!p) continue
+    var t = Number(p.t)
+    var w = Number(p.watts)
+    if (!isFinite(t) || t <= 0 || !isFinite(w) || w < 0) continue
+    out.push({ t: t, watts: w })
+  }
+  out.sort(function(a, b) { return a.t - b.t })
+  return pruneWattHistory(out, windowMs, nowMs)
+}
+
+function niceCeil(n) {
+  var v = Number(n)
+  if (!(v > 0) || !isFinite(v)) return 0
+  var exp = Math.pow(10, Math.floor(Math.log(v) / Math.LN10))
+  var nice = Math.ceil(v / exp)
+  if (nice <= 1) nice = 1
+  else if (nice <= 2) nice = 2
+  else if (nice <= 5) nice = 5
+  else nice = 10
+  return nice * exp
+}
+
+function wattExtent(points) {
+  var list = Array.isArray(points) ? points : []
+  var peak = 0
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i]
+    if (!p) continue
+    var v = Number(p.watts)
+    if (isFinite(v) && v > peak) peak = v
+  }
+  return { peak: peak, axis: peak > 0 ? niceCeil(peak) : 0 }
+}
+
+function trafficWindow(points, windowMs, nowMs) {
+  var list = Array.isArray(points) ? points : []
+  var now = Number(nowMs)
+  if (!isFinite(now) || now <= 0) now = Date.now()
+  var window = Math.max(1000, Number(windowMs) || 900000)
+  var t1 = now
+  var t0 = now - window
+  if (list.length > 0) {
+    var last = list[list.length - 1]
+    if (last && Number(last.t) > t1) t1 = Number(last.t)
+  }
+  return { t0: t0, t1: t1 }
+}
+
+function formatWatts(n) {
+  var v = Number(n)
+  if (!isFinite(v) || v < 0) v = 0
+  if (v >= 10) return Math.round(v) + "W"
+  var rounded = Math.round(v * 10) / 10
+  return String(rounded) + "W"
+}
+
+// Short token counts: 7.1B, 216M, 12K.
+function tokenText(n) {
+  var v = Number(n) || 0
+  if (v >= 1e9) return (Math.round(v / 1e8) / 10) + "B"
+  if (v >= 1e6) return Math.round(v / 1e6) + "M"
+  if (v >= 1e3) return Math.round(v / 1e3) + "K"
+  return String(Math.round(v))
+}
+
+function isoDay(date) {
+  var pad = function(v) { return v < 10 ? "0" + v : String(v) }
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+}
+
+// One bar per day for the last `span` days, oldest first, today last; days
+// the history lacks count for nothing.
+function historyBars(days, span, nowMs) {
+  var byDate = {}
+  ;(days || []).forEach(function(d) { byDate[String(d.date)] = Number(d.tokens) || 0 })
+  var out = []
+  var today = new Date(nowMs)
+  for (var i = span - 1; i >= 0; i--) {
+    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)
+    var iso = isoDay(d)
+    out.push({ date: iso, tokens: byDate[iso] || 0, today: i === 0 })
+  }
+  return out
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    parseTopCpu: parseTopCpu,
+    cpuBarSegments: cpuBarSegments,
+    pruneWattHistory: pruneWattHistory,
+    parseWattHistory: parseWattHistory,
+    niceCeil: niceCeil,
+    wattExtent: wattExtent,
+    trafficWindow: trafficWindow,
+    formatWatts: formatWatts,
+    tokenText: tokenText,
+    isoDay: isoDay,
+    historyBars: historyBars,
     batteryGauge: batteryGauge,
     median: median,
     dischargeRate: dischargeRate,
