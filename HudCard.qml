@@ -24,6 +24,8 @@ Item {
   property int spinMs: 1200
   readonly property real spread: (1 - seg(0.3, 0.6)) * 14
   readonly property real bracketOpacity: t < 0.3 ? 0 : (t > 0.62 && t < 0.66) || (t > 0.7 && t < 0.74) ? 0.15 : 1
+  property bool shown: true
+  signal closed()
   width: 300
   height: hudBody.implicitHeight + 28
 
@@ -39,8 +41,27 @@ Item {
     spin = 1
     lockAnimation.restart()
   }
-  onVisibleChanged: if (visible) lock()
-  Component.onCompleted: if (visible) lock()
+  onVisibleChanged: if (visible && shown) lock()
+  Component.onCompleted: if (visible && shown) lock()
+  // Closing is the opening backwards, then `closed` lets the bar go home.
+  onShownChanged: {
+    if (shown) {
+      closing.stop()
+      lock()
+    } else {
+      lockAnimation.stop()
+      closing.restart()
+    }
+  }
+
+  NumberAnimation {
+    id: closing
+    target: hudCard
+    property: "t"
+    to: 0
+    duration: bar.dur(140)
+    onFinished: hudCard.closed()
+  }
 
   ParallelAnimation {
     id: lockAnimation

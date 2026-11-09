@@ -59,13 +59,12 @@ Item {
   // At rest only the rail shows, as wide as the gap beside the windows; the
   // numbers and icons slide out to stripWidth while the pointer is on it.
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
-  // Wider only while a card shows: the surface is redrawn whole, and each
-  // resize is a round trip to the compositor. The icons and numbers fit in
-  // the narrow one.
-  readonly property int wantedWidth: anyTagLive || hoveredZone !== "" ? 360 : 84
-  // What the surface really is, so that everything stays against the screen's
-  // edge while a resize is under way.
-  readonly property int stripWidth: win.width > 0 ? win.width : wantedWidth
+  // Fixed, and so is the cards' surface: Hyprland animates a layer's resize,
+  // which would show as the bar sweeping in from far away.
+  readonly property int stripWidth: 84
+  readonly property int cardsWidth: 360
+  // Where a card sits beside the open bar, in the cards' surface.
+  function cardX(width) { return cardsWidth - backingWidth - width - 7 }
   // The gauges start level with the top of the windows' top border and end
   // level with the bottom of their bottom one: the corners line up.
   readonly property real railInset: 0.8
@@ -199,6 +198,17 @@ Item {
   // What the battery's card shows, as in austraz.power; read only while the
   // pointer is on the battery.
   property string hoveredZone: ""
+  // The card showing: it outlives the pointer for as long as it takes to
+  // close, and the bar waits for it.
+  property string cardZone: ""
+  onHoveredZoneChanged: if (hoveredZone !== "") cardZone = hoveredZone
+  property bool cardJustClosed: false
+  function finishCard(zone) {
+    if (cardZone !== zone) return
+    cardJustClosed = true
+    cardZone = ""
+    cardJustClosed = false
+  }
   property var wattHistory: []
   property var topCpu: []
   property string batteryCycles: ""
@@ -1149,7 +1159,7 @@ Item {
   function keepSuperOpen() { if (numbersShown) superSafety.restart() }
   Timer { id: superSafety; interval: 30000; onTriggered: root.numbersShown = false }
   Timer { id: superDelay; interval: 180; onTriggered: root.superOpen = root.numbersShown }
-  readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen
+  readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen || cardZone !== ""
 
   // The numbers and icons deploy on one timeline, 0 to 1: the strip slides
   // out, then a wave leaves the pointer up and down the rail.
@@ -1160,7 +1170,12 @@ Item {
   property bool deployed: false
   property real originY: 0
   onOpenChanged: {
-    if (!open) { closeDelay.restart(); return }
+    if (!open) {
+      // A card that just closed already took its time: the bar goes at once.
+      if (cardJustClosed) startRetract()
+      else closeDelay.restart()
+      return
+    }
     closeDelay.stop()
     if (deployed) return
     deployed = true
@@ -1171,11 +1186,12 @@ Item {
   Timer {
     id: closeDelay
     interval: 150
-    onTriggered: {
-      root.deployed = false
-      deploying.stop()
-      retracting.restart()
-    }
+    onTriggered: root.startRetract()
+  }
+  function startRetract() {
+    deployed = false
+    deploying.stop()
+    retracting.restart()
   }
   // Opening: the strip slides out, then the icons come in a wave. Closing
   // is not that played backwards: the icons go first, all together, while
@@ -1204,12 +1220,40 @@ Item {
 
   // --------------------------------------------------------------- window
 
+  // The cards' own surface, beside the bar's. It takes no pointer, stays the
+  // same size, and exists only while there is a card: empty, it would still
+  // cost the compositor.
+  PanelWindow {
+    id: cardWin
+    screen: root.targetScreen
+    visible: win.visible && (root.anyTagLive || root.cardZone !== "")
+    color: "transparent"
+    implicitWidth: root.cardsWidth
+    anchors { top: true; bottom: true; right: true }
+    margins {
+      top: win.margins.top
+      bottom: win.margins.bottom
+      right: win.margins.right
+    }
+    WlrLayershell.namespace: "austraz-daybar-cards"
+    WlrLayershell.layer: root.covered ? WlrLayer.Top : WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    exclusionMode: ExclusionMode.Ignore
+    exclusiveZone: 0
+    mask: Region {}
+
+    Item {
+      id: cardLayer
+      anchors.fill: parent
+    }
+  }
+
   PanelWindow {
     id: win
     screen: root.targetScreen
     visible: root.cfg.visible && root.targetScreen !== null && !root.gameHere && !root.screensaverUp
     color: "transparent"
-    implicitWidth: root.wantedWidth
+    implicitWidth: root.stripWidth
 
     anchors { top: true; bottom: true; right: true }
     margins {
@@ -1438,11 +1482,11 @@ Item {
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
               Loader {
+                parent: cardLayer
                 active: cell.tagLive && cell.tagWord !== ""
                 // Left of the desk's number when it shows, never over it.
-                x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7)
-                y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
-                z: 3
+                x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
+                y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 sourceComponent: HudCard {
                   bar: root
                   ink: cell.waiting ? root.alarm : root.hud
@@ -1549,8 +1593,8 @@ Item {
           }
         }
         Loader {
-          z: 3
-          active: root.deploy > 0 && root.hoveredZone === "battery"
+          parent: cardLayer
+          active: root.cardZone === "battery"
           sourceComponent: ZoneTag {
               head: "BATTERY"
               status: root.batteryMode === "charging" ? "CHARGING" : root.batteryMode === "discharging" ? "ON BATTERY" : "PLUGGED"
@@ -1640,8 +1684,8 @@ Item {
         }
         // One card for both limits: Fable on the left, the week on the right.
         Loader {
-          z: 3
-          active: root.deploy > 0 && root.hoveredZone === "ai"
+          parent: cardLayer
+          active: root.cardZone === "ai"
           sourceComponent: ZoneTag {
             readonly property bool anyFull: root.gauges.some(function(g) { return g.known && g.risk === "full" })
             zone: "ai"
@@ -1696,11 +1740,12 @@ Item {
     property bool hasContent: title !== ""
     property real zoneY: 0
     property real zoneHeight: 0
-    visible: root.deploy > 0 && root.hoveredZone === zone && hasContent
-    x: root.stripWidth - root.backingWidth - width - 7
+    visible: root.deploy > 0 && root.cardZone === zone && hasContent
+    shown: root.hoveredZone === zone
+    onClosed: root.finishCard(zone)
+    x: root.cardX(width)
     // Stays on the screen, whatever the card's height.
-    y: Math.max(6 - zoneY, Math.min(strip.height - zoneY - height - 6, (zoneHeight - height) / 2))
-    z: 3
+    y: zoneY + Math.max(6 - zoneY, Math.min(strip.height - zoneY - height - 6, (zoneHeight - height) / 2))
   }
 
   // A gauge's area: a click opens its panel, and hovering shows its card.
@@ -1734,5 +1779,6 @@ Item {
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
     function snapshot(path: string): void { strip.grabToImage(function(r) { r.saveToFile(path) }) }
+    function snapshotCards(path: string): void { cardLayer.grabToImage(function(r) { r.saveToFile(path) }) }
   }
 }

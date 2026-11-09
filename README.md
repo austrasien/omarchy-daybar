@@ -102,6 +102,7 @@ omarchy-shell austraz.daybar alerts       # the agents and the desk signalled, a
 omarchy-shell austraz.daybar peek on      # deploy without the pointer (peek off)
 omarchy-shell austraz.daybar state        # what the rail holds, as JSON
 omarchy-shell austraz.daybar snapshot /tmp/daybar.png
+omarchy-shell austraz.daybar snapshotCards /tmp/cards.png  # the cards alone
 ```
 
 ## Holding Super
