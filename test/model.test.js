@@ -358,18 +358,31 @@ test("historyBars crosses a month", () => {
   assert.deepStrictEqual(Model.historyBars([], 2, new Date(2026, 2, 1, 12).getTime()).map(b => b.date), ["2026-02-28", "2026-03-01"])
 })
 
-test("the bar flies from wall to wall, flattens, and comes back", () => {
+test("the bar flies steadily, and flattens against the wall", () => {
   assert.equal(Model.bounce(0).at, 0)
-  assert.ok(Math.abs(Model.bounce(0.41).at - 0.5) < 0.01)
-  assert.equal(Model.bounce(0.91).at, 1)
-  assert.ok(Math.abs(Model.bounce(0.91).scale - 0.3) < 0.01)
-  assert.equal(Model.bounce(1.91).at, 0)
-  assert.ok(Math.abs(Model.bounce(1.91).scale - 0.3) < 0.01)
+  assert.equal(Model.bounce(0.375).at, 0.5)
+  assert.equal(Model.bounce(0.1875).at, 0.25)
+  assert.equal(Model.bounce(0.375).scale, 1)
+  const press = Model.bounce(0.875)
+  assert.equal(press.at, 1)
+  assert.ok(Math.abs(press.scale - 0.3) < 1e-9)
+  assert.ok(Math.abs(press.girth - 1) < 1e-9)
+  assert.equal(Model.bounce(1.875).at, 0)
 })
 
-test("the bar's height does not jump when it hits or leaves a wall", () => {
-  assert.ok(Math.abs(Model.bounce(0.8199).scale - Model.bounce(0.82).scale) < 0.02)
-  assert.ok(Math.abs(Model.bounce(0.9999).scale - Model.bounce(1).scale) < 0.02)
+test("the bar's shape does not jump as it touches or leaves a wall", () => {
+  assert.ok(Math.abs(Model.bounce(0.7499).scale - Model.bounce(0.7501).scale) < 0.01)
+  assert.ok(Math.abs(Model.bounce(0.9999).scale - Model.bounce(1).scale) < 0.01)
+  assert.ok(Math.abs(Model.bounce(0.9999).girth - Model.bounce(1).girth) < 0.01)
+})
+
+test("a tag ends its sweep by reaching the middle", () => {
+  assert.equal(Model.tagSweepEnd(450, 5000), 5175)
+  assert.equal(Model.tagSweep(0, 450, 5000), 0)
+  assert.equal(Model.tagSweep(450, 450, 5000), 1)
+  assert.ok(Math.abs(Model.tagSweep(5174, 450, 5000) - 0.5) < 0.01)
+  assert.equal(Model.tagSweep(5175, 450, 5000), 0.5)
+  assert.equal(Model.tagSweep(60000, 450, 5000), 0.5)
 })
 
 test("bounce wraps its clock", () => {

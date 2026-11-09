@@ -881,9 +881,20 @@ Item {
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
   // A tag sweeps its window for its first seconds, then holds still to be read.
   readonly property int tagSweepMs: 5000
+  readonly property int tagOneWayMs: 450
+  function tagStart(address) {
+    var t = tags[address]
+    return t ? t.until - tagMs : 0
+  }
   function tagMoves(address) {
     var t = tags[address]
-    return !!t && t.state !== "working" && t.until > 0 && tagNow < t.until - tagMs + tagSweepMs
+    return !!t && t.state !== "working" && t.until > 0
+      && tagNow < tagStart(address) + Model.tagSweepEnd(tagOneWayMs, tagSweepMs)
+  }
+  // Where a tag is, at each tick of the animation clock.
+  function tagAt(start) {
+    root.workClock
+    return Model.tagSweep(Date.now() - start, tagOneWayMs, tagSweepMs)
   }
   readonly property bool anyTagMoving: Object.keys(tags).some(function(a) { return root.tagMoves(a) })
   function syncTags() {
@@ -1411,6 +1422,9 @@ Item {
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
               readonly property string tagWord: waiting ? "WAIT" : done ? "DONE" : ""
+              readonly property real tagBegan: !info ? 0
+                : more ? info.hidden.reduce(function(m, a) { return Math.max(m, root.tagStart(a)) }, 0)
+                : root.tagStart(info.address)
               readonly property bool tagMoving: !!info
                 && (more ? info.hidden.some(function(a) { return root.tagMoves(a) }) : root.tagMoves(info.address))
               readonly property string tagTitle: tagLive && tagWord !== "" && !more && Model.isClaudeWindow(info.appId)
@@ -1457,13 +1471,14 @@ Item {
                   NumberAnimation { duration: root.dur(120); easing.type: Easing.OutCubic }
                 }
 
-                // An agent at work: a white bar bouncing from wall to wall of
-                // the cell, from a random place.
+                // An agent at work: a white bar bouncing like a tennis ball
+                // from wall to wall of the cell, from a random place.
                 Rectangle {
-                  readonly property var ball: visible ? Model.bounce(root.workClock + cell.barPhase) : ({ at: 0, scale: 1 })
+                  readonly property var ball: visible ? Model.bounce(root.workClock + cell.barPhase) : ({ at: 0, scale: 1, girth: 1 })
                   visible: cell.working && workTimer.running
+                  x: (parent.width - width) / 2
                   y: ball.at * (block.height - height)
-                  width: parent.width
+                  width: parent.width * ball.girth
                   height: Math.min(block.height, 10 * ball.scale)
                   color: root.nowColor
                   opacity: 0.8
@@ -1509,7 +1524,7 @@ Item {
                 active: wanted || held
                 // Left of the desk's number when it shows, never over it.
                 x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
-                y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
+                y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? root.tagAt(cell.tagBegan) : 0.5)
                 sourceComponent: HudCard {
                   bar: root
                   shown: tagCard.wanted

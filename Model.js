@@ -213,23 +213,35 @@ function sweep(clock) {
   return t <= 1 ? t : 2 - t
 }
 
-// The white bar of a working agent, for a clock running from 0 to 2: a ball
-// thrown from wall to wall. It leaves fast, hangs in the middle, stretches as
-// it speeds into the far wall, flattens against it, and springs off the other
-// way. `at` is 0 at the top and 1 at the bottom, `scale` its height's factor.
+// The white bar of a working agent, for a clock running from 0 to 2: a tennis
+// ball between two walls. It flies at a steady speed; touching a wall, it stays
+// there a moment, flattening and bulging, then springs back into shape and
+// off the other way. `at` is 0 at the top and 1 at the bottom, `scale` the
+// factor of its height and `girth` the factor of its width.
 function bounce(clock) {
   var t = ((clock % 2) + 2) % 2
   var down = t < 1
   var u = down ? t : t - 1
-  var flight = 0.82
-  if (u >= flight) {
-    var q = (u - flight) / (1 - flight)
-    return { at: down ? 1 : 0, scale: 0.3 + 1.15 * Math.pow(Math.abs(2 * q - 1), 1.2) }
+  var flight = 0.75
+  if (u < flight) {
+    var pos = u / flight
+    return { at: down ? pos : 1 - pos, scale: 1, girth: 0.7 }
   }
-  var c = 2 * u / flight - 1
-  var far = Math.pow(Math.abs(c), 2.2)
-  var pos = 0.5 + 0.5 * (c < 0 ? -far : far)
-  return { at: down ? pos : 1 - pos, scale: 1 + 0.45 * far }
+  var press = Math.sin(Math.PI * (u - flight) / (1 - flight))
+  return { at: down ? 1 : 0, scale: 1 - 0.7 * press, girth: 0.7 + 0.3 * press }
+}
+
+// When a tag sweeping its window has reached the middle for good: the first
+// time it goes through it after `minMs`.
+function tagSweepEnd(oneWayMs, minMs) {
+  return (Math.ceil(minMs / oneWayMs - 0.5) + 0.5) * oneWayMs
+}
+
+// A tag's place in its window, `elapsedMs` after it appeared: going up and
+// down, then still in the middle, where it arrives on its own.
+function tagSweep(elapsedMs, oneWayMs, minMs) {
+  if (elapsedMs >= tagSweepEnd(oneWayMs, minMs)) return 0.5
+  return sweep(Math.max(0, elapsedMs) / oneWayMs)
 }
 
 // Strongest agent state across a set of window addresses.
@@ -801,6 +813,8 @@ if (typeof module !== "undefined") {
     windowStates: windowStates,
     sweep: sweep,
     bounce: bounce,
+    tagSweepEnd: tagSweepEnd,
+    tagSweep: tagSweep,
     strongestState: strongestState,
     appIdCandidates: appIdCandidates,
     webAppHint: webAppHint,
