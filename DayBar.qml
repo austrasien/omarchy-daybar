@@ -933,7 +933,7 @@ Item {
   // may never reach us after a Super+key chord and the key state cannot be
   // read, so it closes by itself once the moves stop.
   function keepSuperOpen() { if (numbersShown) superSafety.restart() }
-  Timer { id: superSafety; interval: 1500; onTriggered: root.numbersShown = false }
+  Timer { id: superSafety; interval: 1000; onTriggered: root.numbersShown = false }
   Timer { id: superDelay; interval: 180; onTriggered: root.superOpen = root.numbersShown }
   readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen
 
