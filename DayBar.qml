@@ -65,7 +65,7 @@ Item {
   // The gauges start right under the windows' top border and end right
   // above their bottom one, without prolonging them to the screen's corner.
   readonly property int railInset: 3
-  readonly property int railBottomInset: 2
+  readonly property real railBottomInset: 1.2
   // The rail, top to bottom: battery 20 %, desks 60 %, Claude's limits 20 %.
   readonly property int zoneHeight: Math.round(strip.height * 0.2)
   readonly property int deskTop: railInset + zoneHeight + deskGap
