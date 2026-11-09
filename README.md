@@ -12,7 +12,8 @@ the time, this one the space.
   windows show their current tab's favicon.
 - When an agent changes state on another desk or in the scratchpad, a tag
   sweeps its window with the desk and the state (`WORK`, `WAIT`, `DONE`) for
-  five minutes, or until you open that desk.
+  five minutes, or until you open that desk. Leaving a desk where an agent
+  is still working starts its `WORK` tag.
 - **Hold Super** to see the desk numbers, with the bar open or closed.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.

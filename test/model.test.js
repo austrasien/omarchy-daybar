@@ -163,6 +163,16 @@ test("updateTags: opening the desk ends the tag for good", () => {
   assert.equal(Model.updateTags(seen, { a: "done" }, {}, 3000, 300000), seen)
 })
 
+test("updateTags: leaving a desk where an agent works starts its tag", () => {
+  const seen = { a: { state: "working", until: 0 } }
+  assert.deepEqual(Model.updateTags(seen, { a: "working" }, {}, 1000, 300000), { a: { state: "working", until: 301000 } })
+})
+
+test("updateTags: leaving a desk does not bring back a seen done", () => {
+  const seen = { a: { state: "done", until: 0 } }
+  assert.equal(Model.updateTags(seen, { a: "done" }, {}, 1000, 300000), seen)
+})
+
 test("updateTags: a new state starts a new tag, a cleared one goes", () => {
   const live = { a: { state: "working", until: 5000 }, b: { state: "done", until: 5000 } }
   const next = Model.updateTags(live, { a: "done" }, {}, 9000, 300000)
