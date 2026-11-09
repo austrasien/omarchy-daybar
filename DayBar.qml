@@ -303,7 +303,7 @@ Item {
 
   readonly property var weekDays: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."]
   function clockText(sec) {
-    var d = new Date(sec * 1000)
+    var d = new Date(Math.round(sec / 60) * 60000)
     var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
     return d.toDateString() === now.toDateString() ? hm : weekDays[d.getDay()] + " " + hm
   }
@@ -312,8 +312,17 @@ Item {
     if (!g || !g.known) return []
     var rows = []
     if (g.risk === "full" && g.cap > 0) rows.push({ k: "FULL", v: clockText(g.cap) })
-    if (g.reset > 0) rows.push({ k: "RESET", v: clockText(g.reset) })
     return rows
+  }
+  // The limits' reset, once when they share it.
+  readonly property string resetText: {
+    var seen = []
+    gauges.forEach(function(g) {
+      if (!g.known || !(g.reset > 0)) return
+      var text = clockText(g.reset)
+      if (seen.indexOf(text) === -1) seen.push(text)
+    })
+    return seen.join(" / ")
   }
 
   // A gauge turning red blinks, once per window. Those already red when the
@@ -1668,6 +1677,12 @@ Item {
             spacing: 16
             GaugeColumn { name: "FABLE"; gauge: root.gauges[1] || ({ known: false }) }
             GaugeColumn { name: "WEEKLY"; gauge: root.gauges[0] || ({ known: false }) }
+          }
+          Row {
+            visible: root.resetText !== ""
+            spacing: 8
+            HudLabel { width: 44; text: "RESET"; color: root.dim }
+            HudLabel { text: root.resetText; color: root.bright; font.bold: false }
           }
           AiGraphs {}
         }
