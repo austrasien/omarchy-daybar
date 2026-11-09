@@ -62,9 +62,10 @@ Item {
   // Wider only while tags show: their titles need the room, and the surface
   // is redrawn whole.
   readonly property int stripWidth: anyTagLive || deploy > 0 ? 340 : 84
-  // The desks stop short of the ends, or the top outline would line up
-  // with the windows' border and prolong it to the corner of the screen.
-  readonly property int railInset: 4
+  // The gauges start right under the windows' top border and end right
+  // above their bottom one, without prolonging them to the screen's corner.
+  readonly property int railInset: 3
+  readonly property int railBottomInset: 2
   // The rail, top to bottom: battery 20 %, desks 60 %, Claude's limits 20 %.
   readonly property int zoneHeight: Math.round(strip.height * 0.2)
   readonly property int deskTop: railInset + zoneHeight + deskGap
@@ -1481,7 +1482,7 @@ Item {
         readonly property real gaugeHeight: (height - root.deskGap) / 2
         visible: root.usageLimits.length > 0
         opacity: root.usageStale ? 0.4 : 1
-        y: strip.height - root.railInset - height
+        y: strip.height - root.railBottomInset - height
         width: root.stripWidth
         height: root.zoneHeight
 
