@@ -363,11 +363,16 @@ test("the bar flies steadily, and flattens against the wall", () => {
   assert.equal(Model.bounce(0.375).at, 0.5)
   assert.equal(Model.bounce(0.1875).at, 0.25)
   assert.equal(Model.bounce(0.375).scale, 1)
-  const press = Model.bounce(0.875)
+  const press = Model.bounce(0.84375)
   assert.equal(press.at, 1)
-  assert.ok(Math.abs(press.scale - 0.3) < 1e-9)
+  assert.ok(Math.abs(press.scale - 0.2) < 1e-9)
   assert.ok(Math.abs(press.girth - 1) < 1e-9)
-  assert.equal(Model.bounce(1.875).at, 0)
+  assert.equal(Model.bounce(1.84375).at, 0)
+})
+
+test("the bar springs off the wall longer, and settles in flight", () => {
+  assert.ok(Math.abs(Model.bounce(0).scale - 1.35) < 1e-9)
+  assert.equal(Model.bounce(0.3).scale, 1)
 })
 
 test("the bar's shape does not jump as it touches or leaves a wall", () => {

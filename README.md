@@ -11,7 +11,7 @@ the time, this one the space.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
   windows show their current tab's favicon.
 - When an agent finishes or gets blocked on another desk or in the scratchpad,
-  a card sweeps its window for five seconds, then holds still in its middle, for
+  a card sweeps its window for a second and a half, then holds still in its middle, for
   five minutes in all or until you open that desk: the window's title for Claude
   Code, Claude Code Local and Forge, in green when finished and red when blocked;
   the desk and `DONE` or `WAIT` for the others.

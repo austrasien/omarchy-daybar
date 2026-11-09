@@ -880,7 +880,7 @@ Item {
   }
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
   // A tag sweeps its window for its first seconds, then holds still to be read.
-  readonly property int tagSweepMs: 5000
+  readonly property int tagSweepMs: 1500
   readonly property int tagOneWayMs: 450
   function tagStart(address) {
     var t = tags[address]
@@ -1479,7 +1479,7 @@ Item {
                   x: (parent.width - width) / 2
                   y: ball.at * (block.height - height)
                   width: parent.width * ball.girth
-                  height: Math.min(block.height, 10 * ball.scale)
+                  height: Math.min(block.height, 14 * ball.scale)
                   color: root.nowColor
                   opacity: 0.8
                 }

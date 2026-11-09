@@ -215,20 +215,24 @@ function sweep(clock) {
 
 // The white bar of a working agent, for a clock running from 0 to 2: a tennis
 // ball between two walls. It flies at a steady speed; touching a wall, it stays
-// there a moment, flattening and bulging, then springs back into shape and
-// off the other way. `at` is 0 at the top and 1 at the bottom, `scale` the
+// there a moment, flattening and bulging, then springs out longer than it
+// was and off the other way, settling as it flies. `at` is 0 at the top and 1 at the bottom, `scale` the
 // factor of its height and `girth` the factor of its width.
 function bounce(clock) {
   var t = ((clock % 2) + 2) % 2
   var down = t < 1
   var u = down ? t : t - 1
   var flight = 0.75
+  var spring = 0.35   // how much longer than at rest it springs off a wall
   if (u < flight) {
     var pos = u / flight
-    return { at: down ? pos : 1 - pos, scale: 1, girth: 0.7 }
+    var settling = Math.max(0, 1 - pos / 0.2)
+    return { at: down ? pos : 1 - pos, scale: 1 + spring * settling, girth: 0.65 }
   }
-  var press = Math.sin(Math.PI * (u - flight) / (1 - flight))
-  return { at: down ? 1 : 0, scale: 1 - 0.7 * press, girth: 0.7 + 0.3 * press }
+  var q = (u - flight) / (1 - flight)
+  var press = Math.sin(Math.PI * Math.min(q / 0.75, 1))
+  var leaving = Math.max(0, (q - 0.75) / 0.25)
+  return { at: down ? 1 : 0, scale: 1 - 0.8 * press + spring * leaving, girth: 0.65 + 0.35 * press }
 }
 
 // When a tag sweeping its window has reached the middle for good: the first
