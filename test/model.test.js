@@ -193,35 +193,31 @@ test("updateTags: nothing changed, same object", () => {
   assert.equal(Model.updateTags(live, { a: "done" }, {}, 9000, 300000), live)
 })
 
-test("batteryGauge: charging fills what is left to charge, one tick an hour", () => {
-  // 50 % left in 2 h: a full charge takes 4 h, an hour is a quarter of the zone.
+test("batteryGauge: charging, filled to the level, ticks in the empty part", () => {
+  // 50 % at 400 px: 200 px empty for 2 h to full, one tick in the middle of it.
   const g = Model.batteryGauge({ mode: "charging", seconds: 7200, percent: 50 }, 400)
   assert.equal(g.filled, 200)
-  assert.deepEqual(g.ticks, [100])
+  assert.deepEqual(g.ticks, [300])
+  assert.equal(g.onFilled, false)
 })
 
-test("batteryGauge: on battery, the zone is a full charge's runtime", () => {
-  // 60 Wh at 10 W: 6 h for the zone. 3 h left fill half of it.
-  const g = Model.batteryGauge({ mode: "discharging", seconds: 10800, capacity: 60, watts: 10, percent: 50 }, 600)
+test("batteryGauge: on battery, filled to the level, ticks in the filled part", () => {
+  // 50 % at 600 px: 300 px filled for 3 h left.
+  const g = Model.batteryGauge({ mode: "discharging", seconds: 10800, percent: 50 }, 600)
   assert.equal(g.filled, 300)
   assert.deepEqual(g.ticks, [100, 200])
+  assert.equal(g.onFilled, true)
 })
 
-test("batteryGauge: on battery without history, from the level", () => {
-  const g = Model.batteryGauge({ mode: "discharging", seconds: 3600, capacity: 0, watts: 0, percent: 25 }, 400)
-  assert.equal(g.filled, 100)
-})
-
-test("batteryGauge: plugged in, what it would last if unplugged", () => {
-  const g = Model.batteryGauge({ mode: "estimate", energy: 60, capacity: 60, watts: 10, percent: 100 }, 600)
+test("batteryGauge: plugged in, full, ticks for what it would last", () => {
+  const g = Model.batteryGauge({ mode: "estimate", seconds: 21600, percent: 80 }, 600)
   assert.equal(g.filled, 600)
-  assert.equal(g.ticks.length, 5)
+  assert.deepEqual(g.ticks, [100, 200, 300, 400, 500])
 })
 
-test("batteryGauge: no tick under an hour", () => {
-  const g = Model.batteryGauge({ mode: "discharging", seconds: 720, capacity: 60, watts: 14, percent: 5 }, 300)
-  assert.deepEqual(g.ticks, [])
-  assert.ok(g.filled > 0)
+test("batteryGauge: no tick under an hour, nor without an estimate", () => {
+  assert.deepEqual(Model.batteryGauge({ mode: "discharging", seconds: 720, percent: 5 }, 300).ticks, [])
+  assert.deepEqual(Model.batteryGauge({ mode: "estimate", seconds: 0, percent: 100 }, 300).ticks, [])
 })
 
 test("median: the middle value, 0 for none", () => {

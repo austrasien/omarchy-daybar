@@ -444,30 +444,21 @@ function cleanTitle(title) {
   return String(title || "").replace(/^[\s*·•✳✶✻✽✢◐◑◒◓⠀-⣿]+/, "")
 }
 
-// The battery on its zone of the rail: the zone is a whole battery, the
-// filled part what is left to wait or to use, with a tick for each hour of
-// it. Charging, a whole battery is a full charge at this pace and the filled
-// part the time to full. On battery, or plugged in without charging (what
-// it would last if unplugged), a whole battery is a full charge's runtime.
-// b: { mode, seconds, energy, capacity (Wh), watts (median discharge), percent }.
+// The battery on its zone of the rail: the zone is a whole battery, filled
+// to the current level, and ticks count the hours. Charging, in the part
+// still empty: the hours to full. On battery, in the filled part: the hours
+// left. Plugged in without charging, the zone is full and the ticks the hours
+// it would last unplugged. b: { mode, seconds, percent }.
 function batteryGauge(b, height) {
-  var total = 0, share = 0
-  var fullRun = b.watts > 0 && b.capacity > 0 ? b.capacity / b.watts * 3600 : 0
-  if (b.mode === "charging") {
-    share = clamp(1 - b.percent / 100, 0, 1)
-    total = share > 0 ? b.seconds / share : 0
-  } else if (b.mode === "discharging") {
-    total = fullRun || (b.percent > 0 ? b.seconds / (b.percent / 100) : 0)
-    share = total > 0 ? clamp(b.seconds / total, 0, 1) : 0
-  } else {
-    total = fullRun
-    share = b.capacity > 0 ? clamp(b.energy / b.capacity, 0, 1) : 0
-  }
-  var filled = share * height
-  var hour = total > 0 ? height * 3600 / total : 0
+  var plugged = b.mode === "estimate"
+  var filled = plugged ? height : clamp(b.percent / 100, 0, 1) * height
+  var charging = b.mode === "charging"
+  var start = charging ? filled : 0
+  var span = charging ? height - filled : filled
+  var hour = b.seconds > 0 ? span * 3600 / b.seconds : 0
   var ticks = []
-  if (hour >= 4) for (var y = hour; y < filled - 0.5; y += hour) ticks.push(Math.round(y))
-  return { filled: filled, ticks: ticks }
+  if (hour >= 4) for (var y = start + hour; y < start + span - 0.5; y += hour) ticks.push(Math.round(y))
+  return { filled: filled, ticks: ticks, onFilled: !charging }
 }
 
 // The middle value of `values`, 0 when there are none.

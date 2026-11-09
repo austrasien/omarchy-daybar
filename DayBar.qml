@@ -158,13 +158,13 @@ Item {
 
   // ------------------------------------------------------------- battery
   //
-  // The zone is a whole battery, with a tick per hour on its filled part
-  // (see Model.batteryGauge). Charging: the time to full, in a blinking green.
-  // On battery: the time left, from green to red with the level, blinking at
-  // 10 % or less. Plugged in without charging: what it would last unplugged,
-  // in green. Runtimes use the median discharge rate of the last week
-  // (UPower's rate history); UPower's own estimates jump with the load, so
-  // they are smoothed over five minutes.
+  // The zone is a whole battery, filled to the level, and ticks count the
+  // hours (see Model.batteryGauge). Charging: a blinking green, the hours to
+  // full in the empty part. On battery: green to red with the level, blinking
+  // at 10 % or less, the hours left in the filled part. Plugged in without
+  // charging: full, green, the hours it would last unplugged, from the median
+  // discharge rate of the last week. UPower's own estimates jump with the
+  // load, so they are smoothed over five minutes.
 
   readonly property var battery: UPower.displayDevice
   readonly property int batteryPercent: battery && battery.isPresent ? Math.round(Number(battery.percentage || 0) * 100) : -1
@@ -186,7 +186,6 @@ Item {
   }
   property real dischargeWatts: 0
   readonly property real batteryEnergy: battery ? Number(battery.energy || 0) : 0
-  readonly property real batteryCapacity: battery ? Number(battery.energyCapacity || 0) : 0
   readonly property real batteryAfterSeconds: batteryMode === "estimate" && dischargeWatts > 0 ? batteryEnergy / dischargeWatts * 3600 : 0
   readonly property bool batteryBlinks: batteryMode === "charging"
     || (batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10)
@@ -216,7 +215,7 @@ Item {
   }
   Timer {
     interval: 600000
-    running: root.batteryMode !== ""
+    running: root.batteryMode === "estimate"
     repeat: true
     triggeredOnStart: true
     onTriggered: if (!rateProc.running) rateProc.running = true
@@ -1443,8 +1442,8 @@ Item {
       // The battery, at the top, filling from its top edge down.
       Item {
         id: batteryZone
-        readonly property var gauge: Model.batteryGauge({ mode: root.batteryMode, seconds: root.batterySeconds, energy: root.batteryEnergy,
-          capacity: root.batteryCapacity, watts: root.dischargeWatts, percent: root.batteryPercent }, height)
+        readonly property var gauge: Model.batteryGauge({ mode: root.batteryMode,
+          seconds: root.batteryMode === "estimate" ? root.batteryAfterSeconds : root.batterySeconds, percent: root.batteryPercent }, height)
         visible: root.batteryMode !== ""
         y: root.railInset
         width: root.stripWidth
@@ -1467,12 +1466,12 @@ Item {
             y: modelData
             width: root.cellWidth
             height: 1
-            color: Color.background
+            color: batteryZone.gauge.onFilled ? Color.background : Qt.alpha(Color.foreground, 0.3)
 
             Rectangle {
               width: 4
               height: 1
-              color: Qt.tint(Color.background, Qt.alpha(Color.foreground, 0.4))
+              color: Qt.tint(Color.background, Qt.alpha(Color.foreground, batteryZone.gauge.onFilled ? 0.4 : 0.9))
             }
           }
         }
