@@ -1467,6 +1467,8 @@ Item {
                   color: root.nowColor
                   opacity: 0.8
                 }
+
+                WornTape { visible: block.color.a > 0 }
               }
 
               // A waiting agent: a target frame and a tag sweeping the cell,
@@ -1595,6 +1597,7 @@ Item {
           height: batteryZone.gauge.filled
           color: root.batteryColor
           opacity: root.batteryBlinks && !root.batteryBlinkOn ? 0.2 : 1
+          WornTape {}
         }
         // One portion per hour, as on the day tape: a cut and a tick.
         Repeater {
@@ -1684,6 +1687,7 @@ Item {
               width: root.cellWidth
               height: gauge.forecast
               color: Qt.alpha(gauge.ink, 0.35)
+              WornTape {}
             }
             Rectangle {
               x: root.stripWidth - 1 - root.cellWidth
@@ -1691,6 +1695,7 @@ Item {
               width: root.cellWidth
               height: gauge.used
               color: Qt.alpha(gauge.ink, 0.85)
+              WornTape {}
             }
             // How much of the window has gone by.
             Rectangle {
