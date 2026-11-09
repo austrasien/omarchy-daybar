@@ -1211,7 +1211,7 @@ Item {
                 x: Math.max(0, block.x - width - 3)
                 y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 width: tagText.width + 8
-                height: Math.max(15, tagText.height + 4)
+                height: Math.max(20, tagText.height + 4)
                 radius: 2
                 color: root.hudBlack
                 border.width: 1
@@ -1220,7 +1220,7 @@ Item {
                 Text {
                   id: tagText
                   anchors.centerIn: parent
-                  width: Math.min(implicitWidth, 240)
+                  width: Math.min(implicitWidth, 280)
                   wrapMode: Text.Wrap
                   maximumLineCount: 3
                   elide: Text.ElideRight
@@ -1228,7 +1228,7 @@ Item {
                   textFormat: Text.PlainText
                   color: cell.waiting ? (cell.tagTitle !== "" || root.fastOn ? root.alarm : root.nowColor) : root.hud
                   font.family: Style.fontFamily
-                  font.pixelSize: 9
+                  font.pixelSize: 13
                   font.bold: true
                 }
               }
