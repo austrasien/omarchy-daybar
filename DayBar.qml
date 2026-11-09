@@ -804,7 +804,7 @@ Item {
         break
       case "activewindowv2":
         // Re-sent on every title change: only a real focus change counts.
-        if (event.data !== root.lastActiveEvent) root.numbersShown = false
+        if (event.data !== root.lastActiveEvent) root.keepSuperOpen()
         root.lastActiveEvent = event.data
         root.setUrgent(event.data, false)
         refreshDebounce.restart()
@@ -839,7 +839,7 @@ Item {
         break
       case "workspace":
       case "workspacev2":
-        root.numbersShown = false
+        root.keepSuperOpen()
         refreshDebounce.restart()
         break
       case "movewindow":
@@ -926,8 +926,14 @@ Item {
   onNumbersShownChanged: {
     if (numbersShown) { superDelay.restart(); return }
     superDelay.stop()
+    superSafety.stop()
     superOpen = false
   }
+  // Moving between desks with Super held keeps it open. The Super release
+  // may never reach us after a Super+key chord and the key state cannot be
+  // read, so it closes by itself once the moves stop.
+  function keepSuperOpen() { if (numbersShown) superSafety.restart() }
+  Timer { id: superSafety; interval: 1500; onTriggered: root.numbersShown = false }
   Timer { id: superDelay; interval: 180; onTriggered: root.superOpen = root.numbersShown }
   readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen
 
