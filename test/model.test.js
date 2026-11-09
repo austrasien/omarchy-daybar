@@ -287,3 +287,73 @@ test("parseBatterySysfs has no health without both capacities", () => {
   assert.deepStrictEqual(Model.parseBatterySysfs("156\n"), { cycles: "156", health: null })
   assert.deepStrictEqual(Model.parseBatterySysfs(""), { cycles: "", health: null })
 })
+
+test("parseTopCpu merges a process's instances and sorts them", () => {
+  assert.deepStrictEqual(Model.parseTopCpu("10.0 12 brave\n5.0 13 brave\n20.5 14 foot\n", 5), [
+    { name: "foot", cpu: 20.5, pid: "", pids: 1 },
+    { name: "brave", cpu: 15, pid: "", pids: 2 }
+  ])
+})
+
+test("parseTopCpu keeps the busiest and skips what it cannot read", () => {
+  assert.deepStrictEqual(Model.parseTopCpu("1.0 1 a\n9.0 2 b\nnot a line\n", 1).map(p => p.name), ["b"])
+  assert.deepStrictEqual(Model.parseTopCpu("", 5), [])
+})
+
+test("cpuBarSegments gives each its share and a colour", () => {
+  const segments = Model.cpuBarSegments([{ name: "a", cpu: 30, pids: 1 }, { name: "b", cpu: 10, pids: 2 }], ["#111", "#222"])
+  assert.deepStrictEqual(segments.map(s => s.share), [0.75, 0.25])
+  assert.deepStrictEqual(segments.map(s => s.color), ["#111", "#222"])
+  assert.deepStrictEqual(Model.cpuBarSegments(null), [])
+})
+
+test("parseWattHistory keeps valid points inside the window, oldest first", () => {
+  const raw = JSON.stringify([{ t: 99000, watts: 7 }, { t: 95000, watts: 5 }, { t: 85000, watts: 9 }, { t: 96000, watts: "x" }])
+  assert.deepStrictEqual(Model.parseWattHistory(raw, 10000, 100000), [{ t: 95000, watts: 5 }, { t: 99000, watts: 7 }])
+})
+
+test("parseWattHistory survives a bad file", () => {
+  assert.deepStrictEqual(Model.parseWattHistory("{oops", 10000, 100000), [])
+  assert.deepStrictEqual(Model.parseWattHistory("{}", 10000, 100000), [])
+})
+
+test("wattExtent rounds the axis up from the peak", () => {
+  assert.deepStrictEqual(Model.wattExtent([{ watts: 12 }, { watts: 3 }]), { peak: 12, axis: 20 })
+  assert.deepStrictEqual(Model.wattExtent([]), { peak: 0, axis: 0 })
+})
+
+test("trafficWindow ends now, or at a later last point", () => {
+  assert.deepStrictEqual(Model.trafficWindow([], 10000, 50000), { t0: 40000, t1: 50000 })
+  assert.deepStrictEqual(Model.trafficWindow([{ t: 52000 }], 10000, 50000), { t0: 40000, t1: 52000 })
+})
+
+test("formatWatts keeps one decimal only under 10 W", () => {
+  assert.strictEqual(Model.formatWatts(12.4), "12W")
+  assert.strictEqual(Model.formatWatts(9.14), "9.1W")
+  assert.strictEqual(Model.formatWatts(-1), "0W")
+})
+
+test("tokenText shortens token counts", () => {
+  assert.strictEqual(Model.tokenText(7.1e9), "7.1B")
+  assert.strictEqual(Model.tokenText(216e6), "216M")
+  assert.strictEqual(Model.tokenText(12345), "12K")
+  assert.strictEqual(Model.tokenText(999), "999")
+  assert.strictEqual(Model.tokenText(null), "0")
+})
+
+test("isoDay pads the month and the day", () => {
+  assert.strictEqual(Model.isoDay(new Date(2026, 0, 5)), "2026-01-05")
+})
+
+test("historyBars has one bar a day, today last, missing days at zero", () => {
+  const bars = Model.historyBars([{ date: "2026-11-09", tokens: 5 }, { date: "2026-11-07", tokens: 2 }], 3, new Date(2026, 10, 9, 12).getTime())
+  assert.deepStrictEqual(bars, [
+    { date: "2026-11-07", tokens: 2, today: false },
+    { date: "2026-11-08", tokens: 0, today: false },
+    { date: "2026-11-09", tokens: 5, today: true }
+  ])
+})
+
+test("historyBars crosses a month", () => {
+  assert.deepStrictEqual(Model.historyBars([], 2, new Date(2026, 2, 1, 12).getTime()).map(b => b.date), ["2026-02-28", "2026-03-01"])
+})

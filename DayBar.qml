@@ -203,6 +203,7 @@ Item {
   property string cardZone: ""
   onHoveredZoneChanged: if (hoveredZone !== "") cardZone = hoveredZone
   property bool cardJustClosed: false
+  property int tagCardsHeld: 0
   function finishCard(zone) {
     if (cardZone !== zone) return
     cardJustClosed = true
@@ -921,7 +922,7 @@ Item {
   property real workClock: 0
   Timer {
     id: workTimer
-    interval: 50
+    interval: 100
     running: (root.anyWorking || root.anyWaiting || root.anyTagMoving) && root.animate && win.visible && !root.covered
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
@@ -1226,7 +1227,7 @@ Item {
   PanelWindow {
     id: cardWin
     screen: root.targetScreen
-    visible: win.visible && (root.anyTagLive || root.cardZone !== "")
+    visible: win.visible && (root.tagCardsHeld > 0 || root.cardZone !== "")
     color: "transparent"
     implicitWidth: root.cardsWidth
     anchors { top: true; bottom: true; right: true }
@@ -1482,17 +1483,38 @@ Item {
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
               Loader {
+                id: tagCard
                 parent: cardLayer
-                active: cell.tagLive && cell.tagWord !== ""
+                readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
+                // Still there while it closes, saying what it said.
+                property bool held: false
+                property var said: ({ word: "", title: "", alarm: false, label: "" })
+                Binding on said {
+                  when: tagCard.wanted
+                  restoreMode: Binding.RestoreNone
+                  value: ({
+                    word: cell.tagWord,
+                    title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord,
+                    alarm: cell.waiting,
+                    label: desk.info ? desk.info.label : ""
+                  })
+                }
+                onWantedChanged: if (wanted) held = true
+                Component.onCompleted: if (wanted) held = true
+                onHeldChanged: root.tagCardsHeld += held ? 1 : -1
+                Component.onDestruction: if (held) root.tagCardsHeld -= 1
+                active: wanted || held
                 // Left of the desk's number when it shows, never over it.
                 x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
                 y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 sourceComponent: HudCard {
                   bar: root
-                  ink: cell.waiting ? root.alarm : root.hud
-                  head: "DESK " + (desk.info ? desk.info.label : "")
-                  status: cell.tagWord
-                  title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord
+                  shown: tagCard.wanted
+                  onClosed: tagCard.held = false
+                  ink: tagCard.said.alarm ? root.alarm : root.hud
+                  head: "DESK " + tagCard.said.label
+                  status: tagCard.said.word
+                  title: tagCard.said.title
                 }
               }
 

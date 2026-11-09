@@ -11,10 +11,10 @@ the time, this one the space.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
   windows show their current tab's favicon.
 - When an agent finishes or gets blocked on another desk or in the scratchpad,
-  a tag sweeps its window for five seconds, then holds still in its middle, for
-  five minutes in all or until you open that desk: the
-  window's title for Claude Code, Claude Code Local and Forge, in green when
-  finished and red when blocked; the desk and `DONE` or `WAIT` for the others.
+  a card sweeps its window for five seconds, then holds still in its middle, for
+  five minutes in all or until you open that desk: the window's title for Claude
+  Code, Claude Code Local and Forge, in green when finished and red when blocked;
+  the desk and `DONE` or `WAIT` for the others.
 - **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.
@@ -26,9 +26,14 @@ the time, this one the space.
 ## Battery and limits
 
 The rail gives 60 % of its height to the desks, 20 % to the battery above them
-and 20 % to Claude's limits below them. Hovering one of them shows its card, opening as a target lock, with
-the battery's details, power chart and busiest apps, or Claude's last 90 days and
-tokens by day; a click opens the Power panel or My Agents.
+and 20 % to Claude's limits below them. Hovering one of them shows its card,
+opening as a target lock and closing the same way before the bar goes home: the
+battery's details, power chart and busiest apps, or both of Claude's limits with
+the last 90 days and tokens by day. A click opens the Power panel or My Agents.
+
+The power chart and that click need the austraz.power plugin, which writes
+`~/.local/state/omarchy/power/watt-history.json`; without it, the card has no
+chart.
 
 - **Battery**, filling from the top to the current level, ticks counting the
   hours. Charging, a blinking green with the hours to full in the empty part.
@@ -55,7 +60,7 @@ omarchy-shell austraz.daybar agent <session> <working|waiting|done|idle|end> <pi
 - **Working**: a white bar goes up and down the window's cell from a random
   place.
 - **Waiting**: a fast red blink; the cell grows out of the rail in a target
-  frame, with a `WAIT` tag sweeping it. A Hyprland "urgent" window does the same.
+  frame. A Hyprland "urgent" window does the same.
 - **Done**: a slow accent blink until you see the window or its desk, three
   quick blinks when it is already in view.
 
@@ -90,7 +95,7 @@ After editing the QML, run `omarchy-restart-shell`: the panel is keepLoaded.
 | `hideFullscreen` | Window class regexes the bar hides over in fullscreen, on top of the windows that tell Hyprland they are games. |
 
 `autoCompact` and `leds` are off by default: only one plugin may do these at
-a time, so turn them on once austraz.minimap is gone.
+a time.
 
 ## Commands
 
