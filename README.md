@@ -104,6 +104,26 @@ omarchy-shell austraz.daybar state        # what the rail holds, as JSON
 omarchy-shell austraz.daybar snapshot /tmp/daybar.png
 ```
 
+## Holding Super
+
+Bind `showNumbers` to the press of Super and `hideNumbers` to its release, in
+`~/.config/hypr/bindings.lua`. The release needs all four flags: a plain release
+bind does not fire once another key was pressed, as in Super, 1, 2.
+
+```lua
+hl.unbind("SUPER_L")
+o.bind("SUPER_L", "Show workspace numbers",
+  hl.dsp.exec_cmd("omarchy-shell austraz.daybar showNumbers"),
+  { non_consuming = true })
+hl.unbind("SUPER + SUPER_L")
+o.bind("SUPER + SUPER_L", "Hide workspace numbers",
+  hl.dsp.exec_cmd("omarchy-shell austraz.daybar hideNumbers"),
+  { release = true, transparent = true, ignore_mods = true, non_consuming = true })
+```
+
+Do the same for `SUPER_R` if you use it. A lost release closes the bar after
+30 seconds without a move between desks.
+
 ## Tests
 
 ```sh

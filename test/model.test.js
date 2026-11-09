@@ -278,3 +278,12 @@ test("compactionPlan: closes the gaps", () => {
   const plan = Model.compactionPlan([{ id: 1, name: "1", windows: 1 }, { id: 4, name: "4", windows: 2 }])
   assert.deepEqual(plan, [{ from: 4, to: 2 }])
 })
+
+test("parseBatterySysfs reads the cycles and the health", () => {
+  assert.deepStrictEqual(Model.parseBatterySysfs("156\n3200000\n3572000\n"), { cycles: "156", health: 90 })
+})
+
+test("parseBatterySysfs has no health without both capacities", () => {
+  assert.deepStrictEqual(Model.parseBatterySysfs("156\n"), { cycles: "156", health: null })
+  assert.deepStrictEqual(Model.parseBatterySysfs(""), { cycles: "", health: null })
+})

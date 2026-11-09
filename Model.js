@@ -722,8 +722,21 @@ function historyBars(days, span, nowMs) {
   return out
 }
 
+// The battery's cycle count and health, from three lines of sysfs: cycle
+// count, full capacity, design capacity.
+function parseBatterySysfs(raw) {
+  var lines = String(raw || "").trim().split("\n").map(function(l) { return l.trim() })
+  var full = Number(lines[1])
+  var design = Number(lines[2])
+  return {
+    cycles: lines[0] || "",
+    health: full > 0 && design > 0 ? Math.max(0, Math.min(100, Math.round(100 * full / design))) : null
+  }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    parseBatterySysfs: parseBatterySysfs,
     parseTopCpu: parseTopCpu,
     cpuBarSegments: cpuBarSegments,
     pruneWattHistory: pruneWattHistory,

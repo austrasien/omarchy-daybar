@@ -59,9 +59,13 @@ Item {
   // At rest only the rail shows, as wide as the gap beside the windows; the
   // numbers and icons slide out to stripWidth while the pointer is on it.
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
-  // Wider only while tags show: their titles need the room, and the surface
-  // is redrawn whole.
-  readonly property int stripWidth: anyTagLive || deploy > 0 ? 360 : 84
+  // Wider only while a card shows: the surface is redrawn whole, and each
+  // resize is a round trip to the compositor. The icons and numbers fit in
+  // the narrow one.
+  readonly property int wantedWidth: anyTagLive || hoveredZone !== "" ? 360 : 84
+  // What the surface really is, so that everything stays against the screen's
+  // edge while a resize is under way.
+  readonly property int stripWidth: win.width > 0 ? win.width : wantedWidth
   // The gauges start level with the top of the windows' top border and end
   // level with the bottom of their bottom one: the corners line up.
   readonly property real railInset: 0.8
@@ -76,9 +80,9 @@ Item {
   readonly property int deployWidth: 3 + 22 + 2 + railWidth
   readonly property int deployX: stripWidth - deployWidth
   readonly property int iconX: deployX + 3
-  readonly property real backingWidth: railWidth + (deployWidth - railWidth) * deploySeg(0, 0.35)
+  readonly property real backingWidth: railWidth + (deployWidth - railWidth) * openness
   // The windows' cells grow with it, inside its edge, the icons in them.
-  readonly property real cellWidth: backingWidth - 1 - 3 * deploySeg(0, 0.35)
+  readonly property real cellWidth: backingWidth - 1 - 3 * openness
   readonly property real iconCenterX: stripWidth - 1 - cellWidth / 2 - 11
   readonly property int edgeGap: Style.gapsOut * 2 + 2
   readonly property string barPosition: shell && shell.barConfig ? String(shell.barConfig.position || "top") : "top"
@@ -198,6 +202,7 @@ Item {
   property var wattHistory: []
   property var topCpu: []
   property string batteryCycles: ""
+  property string batteryHealth: ""
   readonly property int wattWindowMs: 900000
   readonly property var wattScale: Model.wattExtent(wattHistory)
   readonly property var wattWindow: Model.trafficWindow(wattHistory, wattWindowMs, Date.now())
@@ -215,8 +220,15 @@ Item {
   }
   Process {
     id: cycleProc
-    command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/cycle_count"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.batteryCycles = String(text).trim() }
+    command: ["sh", "-c", 'd=$(ls -d /sys/class/power_supply/BAT* | head -1); cat "$d/cycle_count"; cat "$d/charge_full" "$d/energy_full" 2>/dev/null; cat "$d/charge_full_design" "$d/energy_full_design" 2>/dev/null']
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var read = Model.parseBatterySysfs(text)
+        root.batteryCycles = read.cycles
+        root.batteryHealth = read.health === null ? "" : read.health + " %"
+      }
+    }
   }
   Timer {
     interval: 5000
@@ -238,8 +250,7 @@ Item {
     if (watts > 0.5) rows.push({ k: "RATE", v: Math.round(watts) + " W" })
     if (batteryCapacity > 0) rows.push({ k: "SIZE", v: Math.round(batteryCapacity) + " Wh" })
     if (batteryCycles !== "") rows.push({ k: "CYCLES", v: batteryCycles })
-    var health = battery ? Number(battery.healthPercentage || 0) : 0
-    if (health > 0) rows.push({ k: "HEALTH", v: Math.round(health) + " %" })
+    if (batteryHealth !== "") rows.push({ k: "HEALTH", v: batteryHealth })
     return rows
   }
   Process {
@@ -264,7 +275,7 @@ Item {
   property bool batteryBlinkOn: true
   Timer {
     interval: 500
-    running: root.batteryBlinks && root.animate && win.visible
+    running: root.batteryBlinks && root.animate && win.visible && !root.covered
     repeat: true
     onRunningChanged: root.batteryBlinkOn = true
     onTriggered: root.batteryBlinkOn = !root.batteryBlinkOn
@@ -408,6 +419,8 @@ Item {
   readonly property bool fullscreenHere: allWindows.some(function(w) {
     return w.workspace === root.currentWorkspace && w.fullscreen >= 2
   })
+  // Behind a fullscreen window nothing shows, so nothing needs to move.
+  readonly property bool covered: fullscreenHere && !anyWaiting
   readonly property bool screensaverUp: allWindows.some(function(w) { return w.appId === "org.omarchy.screensaver" })
 
   // When each desk was last left, kept across shell restarts.
@@ -830,7 +843,7 @@ Item {
   }
   Timer {
     interval: root.flashing ? 350 : 800
-    running: root.anyDone && root.animate
+    running: root.anyDone && root.animate && !root.covered
     repeat: true
     onRunningChanged: root.slowOn = true
     onTriggered: root.slowOn = !root.slowOn
@@ -899,7 +912,7 @@ Item {
   Timer {
     id: workTimer
     interval: 50
-    running: (root.anyWorking || root.anyWaiting || root.anyTagMoving) && root.animate && win.visible
+    running: (root.anyWorking || root.anyWaiting || root.anyTagMoving) && root.animate && win.visible && !root.covered
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
   }
@@ -1141,6 +1154,9 @@ Item {
   // The numbers and icons deploy on one timeline, 0 to 1: the strip slides
   // out, then a wave leaves the pointer up and down the rail.
   property real deploy: 0
+  // How far the strip has slid out, and how much of the icons shows, 0 to 1.
+  property real openness: 0
+  property real iconsShown: 1
   property bool deployed: false
   property real originY: 0
   onOpenChanged: {
@@ -1161,8 +1177,21 @@ Item {
       retracting.restart()
     }
   }
-  NumberAnimation { id: deploying; target: root; property: "deploy"; to: 1; duration: root.dur(520) }
-  NumberAnimation { id: retracting; target: root; property: "deploy"; to: 0; duration: root.dur(420) }
+  // Opening: the strip slides out, then the icons come in a wave. Closing
+  // is not that played backwards: the icons go first, all together, while
+  // the strip already slides home, and both settle gently.
+  ParallelAnimation {
+    id: deploying
+    NumberAnimation { target: root; property: "deploy"; to: 1; duration: root.dur(520) }
+    NumberAnimation { target: root; property: "openness"; to: 1; duration: root.dur(182); easing.type: Easing.OutCubic }
+    NumberAnimation { target: root; property: "iconsShown"; to: 1; duration: root.dur(80) }
+  }
+  ParallelAnimation {
+    id: retracting
+    NumberAnimation { target: root; property: "iconsShown"; to: 0; duration: root.dur(90) }
+    NumberAnimation { target: root; property: "openness"; to: 0; duration: root.dur(220); easing.type: Easing.OutCubic }
+    onFinished: root.deploy = 0
+  }
 
   function deploySeg(a, b) {
     var p = Math.max(0, Math.min(1, (deploy - a) / (b - a)))
@@ -1170,7 +1199,7 @@ Item {
   }
   function wave(y) {
     var a = 0.1 + Math.abs(y - originY) / Math.max(1, strip.height) * 0.5
-    return deploySeg(a, a + 0.25)
+    return deploySeg(a, a + 0.25) * iconsShown
   }
 
   // --------------------------------------------------------------- window
@@ -1180,7 +1209,7 @@ Item {
     screen: root.targetScreen
     visible: root.cfg.visible && root.targetScreen !== null && !root.gameHere && !root.screensaverUp
     color: "transparent"
-    implicitWidth: root.stripWidth
+    implicitWidth: root.wantedWidth
 
     anchors { top: true; bottom: true; right: true }
     margins {
@@ -1196,7 +1225,7 @@ Item {
     WlrLayershell.namespace: "austraz-daybar"
     // Above the bar, but behind a fullscreen window, as the day tape: only
     // a blocked agent shows over one, not to be missed.
-    WlrLayershell.layer: root.fullscreenHere && !root.anyWaiting ? WlrLayer.Top : WlrLayer.Overlay
+    WlrLayershell.layer: root.covered ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
     exclusiveZone: 0
@@ -1227,11 +1256,12 @@ Item {
         // Stands in for the window border it covers once deployed.
         Rectangle {
           visible: root.deploy > 0
+          opacity: root.openness
           anchors.left: parent.left
           y: 1
           width: 2
           height: parent.height - 1
-          color: root.deploy < 0.4 ? root.bright : root.hud
+          color: root.deployed && root.deploy < 0.4 ? root.bright : root.hud
         }
       }
 
@@ -1407,16 +1437,19 @@ Item {
                 border.width: 1
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
-              HudCard {
-                visible: cell.tagLive && cell.tagWord !== ""
+              Loader {
+                active: cell.tagLive && cell.tagWord !== ""
                 // Left of the desk's number when it shows, never over it.
                 x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7)
                 y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 z: 3
-                ink: cell.waiting ? root.alarm : root.hud
-                head: "DESK " + (desk.info ? desk.info.label : "")
-                status: cell.tagWord
-                title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord
+                sourceComponent: HudCard {
+                  bar: root
+                  ink: cell.waiting ? root.alarm : root.hud
+                  head: "DESK " + (desk.info ? desk.info.label : "")
+                  status: cell.tagWord
+                  title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord
+                }
               }
 
               Image {
@@ -1515,76 +1548,20 @@ Item {
             }
           }
         }
-        ZoneTag {
-          head: "BATTERY"
-          status: root.batteryMode === "charging" ? "CHARGING" : root.batteryMode === "discharging" ? "ON BATTERY" : "PLUGGED"
-          title: root.batteryPercent >= 0 ? root.batteryPercent + " %" : ""
-          rows: root.batteryRows
-          ink: root.batteryColor
-          zone: "battery"
-          zoneY: batteryZone.y
-          zoneHeight: batteryZone.height
+        Loader {
+          z: 3
+          active: root.deploy > 0 && root.hoveredZone === "battery"
+          sourceComponent: ZoneTag {
+              head: "BATTERY"
+              status: root.batteryMode === "charging" ? "CHARGING" : root.batteryMode === "discharging" ? "ON BATTERY" : "PLUGGED"
+              title: root.batteryPercent >= 0 ? root.batteryPercent + " %" : ""
+              rows: root.batteryRows
+              ink: root.batteryColor
+              zone: "battery"
+              zoneY: batteryZone.y
+              zoneHeight: batteryZone.height
 
-          HudSection {
-            visible: root.wattHistory.length > 1
-            title: root.batteryMode === "discharging" ? "POWER DRAW" : "CHARGE RATE"
-            note: "max " + Model.formatWatts(root.wattScale.peak)
-          }
-          PowerChart {
-            visible: root.wattHistory.length > 1
-            width: parent.width
-            height: 64
-            points: root.hoveredZone === "battery" ? root.wattHistory : []
-            t0: root.wattWindow.t0
-            t1: root.wattWindow.t1
-            wattsMax: root.wattScale.axis
-            lineColor: root.hud.toString()
-            fillColor: Qt.alpha(root.hud, 0.16).toString()
-            gridColor: Qt.alpha(Color.foreground, 0.12).toString()
-            fontFamily: Style.fontFamily
-          }
-          HudSection { visible: root.cpuSegments.length > 0; title: "TOP CPU" }
-          Row {
-            id: cpuBar
-            visible: root.cpuSegments.length > 0
-            width: parent.width
-            height: 10
-            spacing: 2
-            Repeater {
-              model: root.cpuSegments
-              delegate: Rectangle {
-                required property var modelData
-                width: Math.max(2, (cpuBar.width - 2 * (root.cpuSegments.length - 1)) * modelData.share)
-                height: parent.height
-                color: modelData.color
-              }
-            }
-          }
-          Repeater {
-            model: root.cpuSegments
-            delegate: Item {
-              id: cpuRow
-              required property var modelData
-              width: 272
-              height: 16
-              Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 8; height: 8; color: cpuRow.modelData.color }
-              HudLabel {
-                x: 14
-                width: parent.width - 70
-                anchors.verticalCenter: parent.verticalCenter
-                elide: Text.ElideRight
-                text: cpuRow.modelData.name + (cpuRow.modelData.pids > 1 ? " ×" + cpuRow.modelData.pids : "")
-                color: root.bright
-                font.bold: false
-              }
-              HudLabel {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                text: Math.round(cpuRow.modelData.cpu) + " %"
-                color: root.bright
-                font.bold: false
-              }
-            }
+            BatteryCard { bar: root }
           }
         }
         ZoneClick { zone: "battery"; command: ["omarchy-shell", "austraz.power", "toggle"] }
@@ -1662,29 +1639,22 @@ Item {
           }
         }
         // One card for both limits: Fable on the left, the week on the right.
-        ZoneTag {
-          readonly property bool anyFull: root.gauges.some(function(g) { return g.known && g.risk === "full" })
-          zone: "ai"
-          hasContent: root.usageLimits.length > 0
-          reticle: false
-          head: "CLAUDE"
-          status: anyFull ? "OVER LIMIT" : "ON TRACK"
-          statusInk: anyFull ? Qt.hsla(0, 0.75, 0.5, 1) : root.hud
-          zoneY: aiZone.y
-          zoneHeight: aiZone.height
+        Loader {
+          z: 3
+          active: root.deploy > 0 && root.hoveredZone === "ai"
+          sourceComponent: ZoneTag {
+            readonly property bool anyFull: root.gauges.some(function(g) { return g.known && g.risk === "full" })
+            zone: "ai"
+            hasContent: root.usageLimits.length > 0
+            reticle: false
+            head: "CLAUDE"
+            status: anyFull ? "OVER LIMIT" : "ON TRACK"
+            statusInk: anyFull ? Qt.hsla(0, 0.75, 0.5, 1) : root.hud
+            zoneY: aiZone.y
+            zoneHeight: aiZone.height
 
-          Row {
-            spacing: 16
-            GaugeColumn { name: "FABLE"; gauge: root.gauges[1] || ({ known: false }) }
-            GaugeColumn { name: "WEEKLY"; gauge: root.gauges[0] || ({ known: false }) }
+            ClaudeCard { bar: root }
           }
-          Row {
-            visible: root.resetText !== ""
-            spacing: 8
-            HudLabel { width: 44; text: "RESET"; color: root.dim }
-            HudLabel { text: root.resetText; color: root.bright; font.bold: false }
-          }
-          AiGraphs {}
         }
 
         // The tick between the two limits.
@@ -1719,367 +1689,9 @@ Item {
     color: Qt.alpha(Color.foreground, 0.1)
   }
 
-  // A small version of the day tape's data card: a header with a status, a
-  // scale, a large title, rows of readings, a reticle, scan lines and target
-  // brackets. It opens like the day tape's, as a target lock, on one timeline
-  // `t` from 0 to 1: the panel wipes open from the rail, the brackets close in
-  // and blink, a scan line paints the content while the reticle spins down
-  // onto the target, and a flash marks the lock.
-  component HudCard: Item {
-    id: hudCard
-    property color ink: root.hud
-    property string head: ""
-    property string status: ""
-    property color statusInk: ink
-    property string title: ""
-    property var rows: []
-    property bool reticle: true
-    default property alias content: hudExtra.data
-    property real t: 1
-    property real spin: 0
-    property real spinFrom: 180
-    property int spinMs: 1200
-    readonly property real spread: (1 - seg(0.3, 0.6)) * 14
-    readonly property real bracketOpacity: t < 0.3 ? 0 : (t > 0.62 && t < 0.66) || (t > 0.7 && t < 0.74) ? 0.15 : 1
-    width: 300
-    height: hudBody.implicitHeight + 28
-
-    function seg(a, b) {
-      var p = Math.max(0, Math.min(1, (t - a) / (b - a)))
-      return 1 - Math.pow(1 - p, 3)
-    }
-    function lock() {
-      lockAnimation.stop()
-      spinFrom = 70 + Math.random() * 220
-      spinMs = 600 + Math.random() * 1200
-      t = 0
-      spin = 1
-      lockAnimation.restart()
-    }
-    onVisibleChanged: if (visible) lock()
-    Component.onCompleted: if (visible) lock()
-
-    ParallelAnimation {
-      id: lockAnimation
-      NumberAnimation { target: hudCard; property: "spin"; from: 1; to: 0; duration: root.dur(hudCard.spinMs) }
-      SequentialAnimation {
-        NumberAnimation { target: hudCard; property: "t"; to: 0.74; duration: root.dur(533) }
-        PauseAnimation { duration: root.dur(Math.max(0, hudCard.spinMs - 533)) }
-        NumberAnimation { target: hudCard; property: "t"; to: 1; duration: root.dur(187) }
-      }
-    }
-
-    Item {
-      id: hudWipe
-      anchors.right: parent.right
-      width: hudCard.width * hudCard.seg(0.1, 0.4)
-      height: parent.height
-      clip: true
-
-      Item {
-        x: hudWipe.width - hudCard.width
-        width: hudCard.width
-        height: hudCard.height
-
-        Rectangle {
-          anchors.fill: parent
-          color: root.hudBlack
-          border.width: 1
-          border.color: root.dim
-        }
-        Image {
-          anchors.fill: parent
-          fillMode: Image.Tile
-          verticalAlignment: Image.AlignTop
-          horizontalAlignment: Image.AlignLeft
-          source: "data:image/svg+xml," + encodeURIComponent(
-            "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='1' fill='"
-            + root.hud + "' fill-opacity='0.07'/></svg>")
-        }
-
-        // The content, painted down as the scan line passes.
-        Item {
-          id: hudPainted
-          width: parent.width
-          height: parent.height * hudCard.seg(0.35, 0.85)
-          clip: true
-
-          Column {
-            id: hudBody
-            x: 14
-            y: 14
-            width: hudCard.width - 28
-            spacing: 6
-
-            Item {
-              width: parent.width
-              height: hudHead.implicitHeight
-              HudLabel { id: hudHead; text: "◆ " + hudCard.head; color: root.hud }
-              HudLabel {
-                anchors.right: parent.right
-                text: hudCard.t < 0.75 ? "ACQUIRING" : hudCard.status
-                color: hudCard.t < 0.75 ? root.bright : hudCard.statusInk
-                opacity: hudCard.t >= 0.75 || Math.floor(hudCard.t * 24) % 2 ? 1 : 0.3
-              }
-            }
-
-            Item {
-              id: hudScale
-              width: parent.width
-              height: 5
-              Rectangle { width: parent.width; height: 1; color: root.dim }
-              Repeater {
-                model: 25
-                delegate: Rectangle {
-                  required property int index
-                  x: index * (hudScale.width - 1) / 24
-                  y: 1
-                  width: 1
-                  height: index % 4 === 0 ? 4 : 2
-                  color: root.dim
-                }
-              }
-            }
-
-            Text {
-              visible: hudCard.title !== ""
-              width: parent.width - (hudCard.reticle ? 44 : 0)
-              text: hudCard.title
-              textFormat: Text.PlainText
-              color: hudCard.ink
-              wrapMode: Text.Wrap
-              maximumLineCount: 3
-              elide: Text.ElideRight
-              font.family: Style.fontFamily
-              font.pixelSize: 15
-              font.bold: true
-              font.capitalization: Font.AllUppercase
-            }
-
-            Repeater {
-              model: hudCard.rows
-              delegate: Row {
-                required property var modelData
-                spacing: 8
-                HudLabel { width: 44; text: modelData.k; color: root.dim }
-                HudLabel { text: modelData.v; color: root.bright; font.bold: false }
-              }
-            }
-
-            Column {
-              id: hudExtra
-              width: parent.width
-              spacing: 6
-            }
-          }
-
-          // The reticle spins down onto the target and stops at the lock.
-          Item {
-            visible: hudCard.reticle
-            x: hudCard.width - 14 - width
-            y: 40
-            width: 34
-            height: 34
-            scale: 1 + (1 - hudCard.seg(0.3, 0.75)) * 0.6
-
-            Item {
-              anchors.fill: parent
-              rotation: hudCard.spin * hudCard.spinFrom
-
-              Rectangle { anchors.fill: parent; anchors.margins: 5; radius: width / 2; color: "transparent"; border.width: 1; border.color: root.bright }
-              Rectangle { x: parent.width / 2; width: 1; height: 9; color: root.bright }
-              Rectangle { x: parent.width / 2; y: parent.height - 9; width: 1; height: 9; color: root.bright }
-              Rectangle { y: parent.height / 2; width: 9; height: 1; color: root.bright }
-              Rectangle { x: parent.width - 9; y: parent.height / 2; width: 9; height: 1; color: root.bright }
-              Rectangle { x: parent.width / 2 - 3; y: 2; width: 7; height: 3; color: root.bright }
-            }
-            Rectangle {
-              anchors.centerIn: parent
-              width: 10
-              height: 10
-              color: "transparent"
-              border.width: 1
-              border.color: root.hud
-              rotation: 45 - hudCard.spin * hudCard.spinFrom * 0.75
-            }
-            Rectangle { anchors.centerIn: parent; width: 3; height: 3; color: root.bright }
-          }
-        }
-
-        // Worn tape: dark lines across everything, text included.
-        Image {
-          anchors.fill: parent
-          fillMode: Image.Tile
-          verticalAlignment: Image.AlignTop
-          horizontalAlignment: Image.AlignLeft
-          source: "data:image/svg+xml," + encodeURIComponent(
-            "<svg xmlns='http://www.w3.org/2000/svg' width='3' height='3'><rect width='3' height='1' fill='"
-            + root.hudBlack + "' fill-opacity='0.6'/></svg>")
-        }
-
-        // The scan line and its trail.
-        Rectangle {
-          visible: hudCard.t > 0.35 && hudCard.t < 0.74
-          y: hudPainted.height - height
-          width: parent.width
-          height: 34
-          gradient: Gradient {
-            GradientStop { position: 0; color: Qt.alpha(root.hud, 0) }
-            GradientStop { position: 1; color: Qt.alpha(root.hud, 0.4) }
-          }
-          Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2; color: root.bright }
-        }
-
-        // The flash of the lock.
-        Rectangle {
-          anchors.fill: parent
-          color: root.bright
-          opacity: hudCard.t >= 0.75 ? (1 - hudCard.seg(0.75, 1)) * 0.3 : 0
-        }
-      }
-    }
-
-    // The bright front edge of the wipe.
-    Rectangle {
-      visible: hudCard.t > 0.1 && hudCard.t < 0.42
-      x: hudCard.width - hudWipe.width - 1
-      width: 2
-      height: parent.height
-      color: root.bright
-    }
-
-    HudBracket { x: -4 - hudCard.spread; y: -4 - hudCard.spread; opacity: hudCard.bracketOpacity }
-    HudBracket { x: hudCard.width - width + 4 + hudCard.spread; y: -4 - hudCard.spread; onRight: true; opacity: hudCard.bracketOpacity }
-    HudBracket { x: -4 - hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onBottom: true; opacity: hudCard.bracketOpacity }
-    HudBracket { x: hudCard.width - width + 4 + hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onRight: true; onBottom: true; opacity: hudCard.bracketOpacity }
-  }
-
-  component HudLabel: Text {
-    textFormat: Text.PlainText
-    font.family: Style.fontFamily
-    font.pixelSize: 12
-    font.bold: true
-  }
-
-  component HudBracket: Item {
-    property bool onRight: false
-    property bool onBottom: false
-    width: 14
-    height: 14
-    Rectangle { y: parent.onBottom ? parent.height - 2 : 0; width: parent.width; height: 2; color: root.bright }
-    Rectangle { x: parent.onRight ? parent.width - 2 : 0; width: 2; height: parent.height; color: root.bright }
-  }
-
-  // One limit on Claude's card, in the colour of its gauge.
-  component GaugeColumn: Column {
-    property var gauge: ({ known: false })
-    property string name: ""
-    readonly property color ink: root.gaugeInk(gauge)
-    width: (272 - 16) / 2
-    spacing: 4
-
-    HudLabel { text: parent.name; color: parent.ink }
-    Text {
-      text: parent.gauge.known ? Math.round(parent.gauge.used * 100) + " % → " + Math.round(parent.gauge.forecast * 100) + " %" : "—"
-      textFormat: Text.PlainText
-      color: parent.ink
-      font.family: Style.fontFamily
-      font.pixelSize: 15
-      font.bold: true
-    }
-    Repeater {
-      model: root.gaugeRows(parent.gauge)
-      delegate: Row {
-        required property var modelData
-        spacing: 6
-        HudLabel { width: 40; text: modelData.k; color: root.dim }
-        HudLabel { text: modelData.v; color: root.bright; font.bold: false }
-      }
-    }
-  }
-
-  // A section of a card: a heading and something on its right.
-  component HudSection: Item {
-    property string title: ""
-    property string note: ""
-    width: parent.width
-    height: sectionTitle.implicitHeight + 4
-    HudLabel { id: sectionTitle; y: 4; text: parent.title; color: root.hud }
-    HudLabel { y: 4; anchors.right: parent.right; text: parent.note; color: root.dim; font.bold: false }
-  }
-
-  // Claude's usage: the last 90 days, then tokens by day, as in My Agents.
-  component AiGraphs: Column {
-    id: aiGraphs
-    readonly property var bars: visible ? Model.historyBars(root.usageHistory, 90, root.now.getTime()) : []
-    readonly property real peak: Math.max(1, bars.reduce(function(m, b) { return Math.max(m, b.tokens) }, 0))
-    readonly property real total: bars.reduce(function(sum, b) { return sum + b.tokens }, 0)
-    readonly property real dayPeak: Math.max(1, root.usageRecent.reduce(function(m, d) { return Math.max(m, Number(d.messageCount) || 0) }, 0))
-    readonly property string todayIso: Model.isoDay(root.now)
-    width: parent.width
-    spacing: 4
-
-    HudSection { title: "LAST 90 DAYS"; note: "total " + Model.tokenText(aiGraphs.total) }
-    Item {
-      id: historyPlot
-      width: parent.width
-      height: 48
-      Repeater {
-        model: aiGraphs.bars
-        delegate: Rectangle {
-          required property var modelData
-          required property int index
-          readonly property real slot: historyPlot.width / 90
-          x: index * slot
-          y: historyPlot.height - height
-          width: Math.max(1, slot - 1)
-          height: modelData.tokens > 0 ? Math.max(2, historyPlot.height * modelData.tokens / aiGraphs.peak) : 1
-          color: modelData.tokens > 0 ? (modelData.today ? root.bright : root.dim) : Qt.alpha(Color.foreground, 0.1)
-        }
-      }
-    }
-
-    HudSection { title: "TOKENS BY DAY" }
-    Repeater {
-      model: root.usageRecent
-      delegate: Item {
-        id: dayRow
-        required property var modelData
-        readonly property real count: Number(modelData.messageCount) || 0
-        readonly property bool today: String(modelData.date) === aiGraphs.todayIso
-        width: aiGraphs.width
-        height: 16
-        HudLabel {
-          width: 44
-          anchors.verticalCenter: parent.verticalCenter
-          text: root.weekDays[new Date(String(dayRow.modelData.date) + "T12:00:00").getDay()]
-          color: dayRow.today ? root.bright : root.dim
-        }
-        Rectangle {
-          x: 48
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - 48 - 52
-          height: 6
-          color: Qt.alpha(Color.foreground, 0.1)
-          Rectangle {
-            width: parent.width * dayRow.count / aiGraphs.dayPeak
-            height: parent.height
-            color: dayRow.today ? root.bright : root.hud
-          }
-        }
-        HudLabel {
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          text: Model.tokenText(dayRow.count)
-          color: root.bright
-          font.bold: false
-        }
-      }
-    }
-  }
-
   // A gauge's card, beside the open bar, while the pointer is on that gauge.
   component ZoneTag: HudCard {
+    bar: root
     property string zone: ""
     property bool hasContent: title !== ""
     property real zoneY: 0
@@ -2119,7 +1731,7 @@ Item {
     function hideNumbers(): void { root.numbersShown = false }
     function agent(session: string, state: string, pids: string): void { root.applyAgent(session, state, pids) }
     function peek(on: string): void { root.peeking = on === "on" }
-    function card(zone: string): void { root.hoveredZone = zone }
+    function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
     function snapshot(path: string): void { strip.grabToImage(function(r) { r.saveToFile(path) }) }
   }
