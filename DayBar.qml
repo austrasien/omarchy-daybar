@@ -632,7 +632,46 @@ Item {
   // A working agent blinks in the dim green; with animations off it holds
   // there, so it still shows.
   readonly property bool anyWorking: Object.keys(states).some(function(a) { return root.states[a] === "working" })
-  // One clock for the blinks, the white bars and the WAIT tags, in steps:
+  // State tags: five minutes from a window's change of state, until its
+  // desk (or the scratchpad) is opened. Kept across shell restarts, and not
+  // touched just after a start, while the windows and agents come back.
+  readonly property int tagMs: 5 * 60000
+  property var tags: ({})
+  property real tagNow: Date.now()
+  property bool tagsReady: false
+  Timer { interval: 4000; running: true; onTriggered: { root.tagsReady = true; root.syncTags() } }
+  readonly property bool anyTagLive: Object.keys(tags).some(function(a) { return root.tags[a].until > root.tagNow })
+  function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
+  function syncTags() {
+    if (!tagsReady || !tagsFile.loaded) return
+    var next = Model.updateTags(tags, states, Model.currentAddresses(layout), Date.now(), tagMs)
+    if (next === tags) return
+    tags = next
+    tagNow = Date.now()
+    tagsFile.setText(JSON.stringify(next) + "\n")
+  }
+  onStatesChanged: Qt.callLater(syncTags)
+  onLayoutChanged: Qt.callLater(syncTags)
+  Timer {
+    interval: 5000
+    running: root.anyTagLive
+    repeat: true
+    onTriggered: root.tagNow = Date.now()
+  }
+  FileView {
+    id: tagsFile
+    property bool loaded: false
+    path: root.runtimeDir + "/austraz-daybar-tags.json"
+    printErrors: false
+    atomicWrites: true
+    onLoaded: {
+      try { root.tags = JSON.parse(text() || "{}") || ({}) } catch (e) {}
+      loaded = true
+    }
+    onLoadFailed: loaded = true
+  }
+
+  // One clock for the blinks, the white bars and the state tags, in steps:
   // on a thin rail 20 a second look smooth and cost far fewer redraws than
   // an animation at the display's rate. It runs 0 to 2: a bar goes down and
   // back up once, and a blink cycle takes half of that. Desks next to each
@@ -641,7 +680,7 @@ Item {
   Timer {
     id: workTimer
     interval: 50
-    running: (root.anyWorking || root.anyWaiting || (root.anyDone && root.deploy > 0)) && root.animate && win.visible
+    running: (root.anyWorking || root.anyWaiting || root.anyTagLive) && root.animate && win.visible
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
   }
@@ -1064,6 +1103,8 @@ Item {
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
               readonly property string tagWord: waiting ? "WAIT" : working ? "WORK" : done ? "DONE" : ""
+              readonly property bool tagLive: !desk.current && !!info
+                && (more ? info.hidden.some(function(a) { return root.tagOn(a) }) : root.tagOn(info.address))
               readonly property bool workPhase: desk.index % 2 === 0 ? root.workOn : root.workOnOdd
               // Where the white bar is on the clock, drawn anew at each start.
               property real barPhase: Math.random() * 2
@@ -1089,9 +1130,9 @@ Item {
                 radius: 1
                 clip: true
                 color: cell.waiting ? (root.fastOn ? root.alarm : Qt.darker(root.alarm, 2.2))
-                  : cell.done ? (root.slowOn ? root.hud : root.dim)
+                  : cell.done && !desk.current ? (root.slowOn ? root.hud : root.dim)
                   : cell.hovered ? root.dim
-                  : cell.working ? (cell.workPhase ? root.dim : desk.current ? root.hud : "transparent")
+                  : cell.working && !desk.current ? (cell.workPhase ? root.dim : "transparent")
                   : desk.current ? root.dim
                   : "transparent"
                 // The other desks are outlines, darkening as they age but
@@ -1131,7 +1172,7 @@ Item {
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
               Rectangle {
-                visible: cell.warning || (root.deploy > 0 && cell.tagWord !== "")
+                visible: cell.tagLive && cell.tagWord !== ""
                 x: Math.max(0, block.x - width - 3)
                 y: Math.max(0, cell.height - height) * Model.sweep(root.workClock)
                 width: tagText.implicitWidth + 8

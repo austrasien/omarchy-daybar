@@ -397,8 +397,46 @@ function waitingSpan(layout, states) {
   return top < 0 ? null : { y: top, height: bottom - top }
 }
 
+// The windows of the desks on screen, the scratchpad when it is shown.
+function currentAddresses(layout) {
+  var out = {}
+  layout.forEach(function(desk) {
+    if (!desk.current) return
+    desk.cells.forEach(function(cell) {
+      if (cell.more) cell.hidden.forEach(function(a) { out[a] = true })
+      else out[cell.address] = true
+    })
+  })
+  return out
+}
+
+// A state tag lasts `ttl` ms from the moment a window's state changes, and
+// ends for good once the window's desk is on screen; a window whose desk is
+// on screen when its state changes gets none. { address: { state, until } }.
+// Returns `tags` itself when nothing changed.
+function updateTags(tags, states, onScreen, nowMs, ttl) {
+  var next = {}, changed = false
+  for (var address in states) {
+    var prev = tags[address]
+    var seen = !!onScreen[address]
+    if (!prev || prev.state !== states[address]) {
+      next[address] = { state: states[address], until: seen ? 0 : nowMs + ttl }
+      changed = true
+    } else if (seen && prev.until !== 0) {
+      next[address] = { state: prev.state, until: 0 }
+      changed = true
+    } else {
+      next[address] = prev
+    }
+  }
+  for (var old in tags) if (!states[old]) changed = true
+  return changed ? next : tags
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    currentAddresses: currentAddresses,
+    updateTags: updateTags,
     waitingSpan: waitingSpan,
     backgroundCandidates: backgroundCandidates,
     withBackground: withBackground,

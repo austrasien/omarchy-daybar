@@ -138,6 +138,42 @@ test("withBackground: a resting agent with a shell left running counts as workin
   assert.equal(agents.a.state, "done")
 })
 
+test("currentAddresses: the desks on screen, hidden windows and scratchpad included", () => {
+  const layout = [
+    { id: -98, current: true, cells: [{ address: "s" }] },
+    { id: 1, current: false, cells: [{ address: "a" }] },
+    { id: 2, current: true, cells: [{ address: "b" }, { more: true, hidden: ["c", "d"] }] }
+  ]
+  assert.deepEqual(Object.keys(Model.currentAddresses(layout)).sort(), ["b", "c", "d", "s"])
+})
+
+test("updateTags: five minutes from a state change, off screen", () => {
+  const tags = Model.updateTags({}, { a: "done" }, {}, 1000, 300000)
+  assert.deepEqual(tags, { a: { state: "done", until: 301000 } })
+})
+
+test("updateTags: no tag for a window on screen when it changes", () => {
+  assert.equal(Model.updateTags({}, { a: "working" }, { a: true }, 1000, 300000).a.until, 0)
+})
+
+test("updateTags: opening the desk ends the tag for good", () => {
+  const live = { a: { state: "done", until: 301000 } }
+  const seen = Model.updateTags(live, { a: "done" }, { a: true }, 2000, 300000)
+  assert.equal(seen.a.until, 0)
+  assert.equal(Model.updateTags(seen, { a: "done" }, {}, 3000, 300000), seen)
+})
+
+test("updateTags: a new state starts a new tag, a cleared one goes", () => {
+  const live = { a: { state: "working", until: 5000 }, b: { state: "done", until: 5000 } }
+  const next = Model.updateTags(live, { a: "done" }, {}, 9000, 300000)
+  assert.deepEqual(next, { a: { state: "done", until: 309000 } })
+})
+
+test("updateTags: nothing changed, same object", () => {
+  const live = { a: { state: "done", until: 5000 } }
+  assert.equal(Model.updateTags(live, { a: "done" }, {}, 9000, 300000), live)
+})
+
 test("deskDarkness: grey for 2 min, black at 1 h", () => {
   assert.equal(Model.deskDarkness(60), 0)
   assert.equal(Model.deskDarkness(3600), 1)

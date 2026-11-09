@@ -9,8 +9,10 @@ the time, this one the space.
   between its windows. The whole current desk is in a dim shade of the theme
   accent, the others are outlines.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
-  windows show their current tab's favicon, and agents a tag sweeping their
-  window with the desk and the state (`WORK`, `WAIT`, `DONE`).
+  windows show their current tab's favicon.
+- When an agent changes state on another desk or in the scratchpad, a tag
+  sweeps its window with the desk and the state (`WORK`, `WAIT`, `DONE`) for
+  five minutes, or until you open that desk.
 - **Hold Super** to see the desk numbers, with the bar open or closed.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.
