@@ -48,13 +48,11 @@ process died are dropped every minute.
 
 ## Install
 
-Copy or clone this folder to `~/.config/omarchy/plugins/austraz.daybar`, then:
-
 ```sh
-omarchy-shell shell rescanPlugins
-omarchy plugin enable austraz.daybar
-omarchy-restart-shell   # after editing the QML: the panel is keepLoaded
+omarchy plugin add https://github.com/austrasien/omarchy-daybar.git --enable
 ```
+
+After editing the QML, run `omarchy-restart-shell`: the panel is keepLoaded.
 
 ## Settings
 
