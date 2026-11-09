@@ -1455,6 +1455,24 @@ Item {
           height: batteryZone.stripes.after
           color: root.runtimeColor
         }
+        // One portion per hour, as on the day tape: a cut and a tick.
+        Repeater {
+          model: 23
+          delegate: Rectangle {
+            required property int index
+            x: root.stripWidth - 1 - root.cellWidth
+            y: Math.round((index + 1) * batteryZone.height / 24)
+            width: root.cellWidth
+            height: 1
+            color: Color.background
+
+            Rectangle {
+              width: 4
+              height: 1
+              color: Qt.tint(Color.background, Qt.alpha(Color.foreground, 0.4))
+            }
+          }
+        }
         ZoneTag {
           text: root.batteryText
           ink: root.batteryMode === "charging" ? root.batteryColor : root.bright

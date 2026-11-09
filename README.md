@@ -29,7 +29,8 @@ The rail gives 60 % of its height to the desks, 20 % to the battery above them
 and 20 % to Claude's limits below them. Hover or hold Super for the values; a
 click opens the Power panel or My Agents.
 
-- **Battery**, from the top, which is now, down a scale of 24 hours: on battery
+- **Battery**, from the top, which is now, down a scale of 24 hours cut in
+  one-hour portions: on battery
   a stripe to the estimated empty time, green at 100 % shading to red at 0 %,
   blinking under 10 %. Charging, an orange stripe to full, then a green one for
   how long that charge would last. Plugged in and full, the green runtime from
