@@ -15,7 +15,7 @@ the time, this one the space.
   five minutes in all or until you open that desk: the
   window's title for Claude Code, Claude Code Local and Forge, in green when
   finished and red when blocked; the desk and `DONE` or `WAIT` for the others.
-- **Hold Super** to see the desk numbers, with the bar open or closed.
+- **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.
 - A desk's outline darkens the longer it goes unvisited, and the

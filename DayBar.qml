@@ -920,7 +920,16 @@ Item {
   }
 
   property bool peeking: false
-  readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking
+  // Held Super deploys it too, after a moment: every Super+key shortcut
+  // starts by pressing Super, and those must not make it flash.
+  property bool superOpen: false
+  onNumbersShownChanged: {
+    if (numbersShown) { superDelay.restart(); return }
+    superDelay.stop()
+    superOpen = false
+  }
+  Timer { id: superDelay; interval: 180; onTriggered: root.superOpen = root.numbersShown }
+  readonly property bool open: stripHover.hovered || dragAddress !== "" || peeking || superOpen
 
   // The numbers and icons deploy on one timeline, 0 to 1: the strip slides
   // out, then a wave leaves the pointer up and down the rail.
@@ -932,7 +941,7 @@ Item {
     closeDelay.stop()
     if (deployed) return
     deployed = true
-    originY = stripHover.point.position.y
+    originY = stripHover.hovered ? stripHover.point.position.y : strip.height / 2
     retracting.stop()
     deploying.restart()
   }
