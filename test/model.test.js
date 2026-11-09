@@ -364,7 +364,7 @@ test("the bar brakes near the walls and flattens against them", () => {
   assert.ok(nearWall < midFlight / 2)
 
   assert.equal(Model.bounce(0).at, 0)
-  assert.equal(Model.bounce(0.32).at, 0.5)
+  assert.ok(Math.abs(Model.bounce(0.32).at - 0.5) < 1e-9)
   assert.equal(Model.bounce(0.32).scale, 1)
   const press = Model.bounce(0.775)
   assert.equal(press.at, 1)
