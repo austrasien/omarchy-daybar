@@ -58,7 +58,9 @@ Item {
   // At rest only the rail shows, as wide as the gap beside the windows; the
   // numbers and icons slide out to stripWidth while the pointer is on it.
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
-  readonly property int stripWidth: 84
+  // Wider only while tags show: their titles need the room, and the surface
+  // is redrawn whole.
+  readonly property int stripWidth: anyTagLive ? 340 : 84
   // The desks stop short of the ends, or the top outline would line up
   // with the windows' border and prolong it to the corner of the screen.
   readonly property int railInset: 4
@@ -640,7 +642,14 @@ Item {
   property real tagNow: Date.now()
   property bool tagsReady: false
   Timer { interval: 4000; running: true; onTriggered: { root.tagsReady = true; root.syncTags() } }
-  readonly property bool anyTagLive: Object.keys(tags).some(function(a) { return root.tags[a].until > root.tagNow })
+  readonly property bool anyTagLive: Object.keys(tags).some(function(a) { return root.tags[a].state !== "working" && root.tags[a].until > root.tagNow })
+  // The toplevel's title is live, unlike the windows read on each refresh.
+  function titleOf(address) {
+    var values = Hyprland.toplevels.values
+    for (var i = 0; i < values.length; i++)
+      if (normalizeAddress(values[i].address) === address) return String(values[i].title || "")
+    return ""
+  }
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
   function syncTags() {
     if (!tagsReady || !tagsFile.loaded) return
@@ -1102,7 +1111,9 @@ Item {
               readonly property bool waiting: agentState === "waiting"
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
-              readonly property string tagWord: waiting ? "WAIT" : working ? "WORK" : done ? "DONE" : ""
+              readonly property string tagWord: waiting ? "WAIT" : done ? "DONE" : ""
+              readonly property string tagTitle: tagLive && tagWord !== "" && !more && Model.isClaudeWindow(info.appId)
+                ? Model.cleanTitle(root.titleOf(info.address)) : ""
               readonly property bool tagLive: !desk.current && !!info
                 && (more ? info.hidden.some(function(a) { return root.tagOn(a) }) : root.tagOn(info.address))
               readonly property bool workPhase: desk.index % 2 === 0 ? root.workOn : root.workOnOdd
@@ -1175,7 +1186,7 @@ Item {
                 visible: cell.tagLive && cell.tagWord !== ""
                 x: Math.max(0, block.x - width - 3)
                 y: Math.max(0, cell.height - height) * Model.sweep(root.workClock)
-                width: tagText.implicitWidth + 8
+                width: tagText.width + 8
                 height: 15
                 radius: 2
                 color: root.hudBlack
@@ -1185,9 +1196,11 @@ Item {
                 Text {
                   id: tagText
                   anchors.centerIn: parent
-                  text: (desk.info ? desk.info.label : "") + " " + cell.tagWord
+                  width: Math.min(implicitWidth, 240)
+                  elide: Text.ElideRight
+                  text: cell.tagTitle !== "" ? cell.tagTitle : (desk.info ? desk.info.label : "") + " " + cell.tagWord
                   textFormat: Text.PlainText
-                  color: cell.waiting ? (root.fastOn ? root.nowColor : root.alarm) : root.bright
+                  color: cell.waiting ? (cell.tagTitle !== "" || root.fastOn ? root.alarm : root.nowColor) : root.hud
                   font.family: Style.fontFamily
                   font.pixelSize: 9
                   font.bold: true

@@ -163,9 +163,18 @@ test("updateTags: opening the desk ends the tag for good", () => {
   assert.equal(Model.updateTags(seen, { a: "done" }, {}, 3000, 300000), seen)
 })
 
-test("updateTags: leaving a desk where an agent works starts its tag", () => {
-  const seen = { a: { state: "working", until: 0 } }
-  assert.deepEqual(Model.updateTags(seen, { a: "working" }, {}, 1000, 300000), { a: { state: "working", until: 301000 } })
+test("isClaudeWindow: Claude Code, Local and Forge only", () => {
+  for (const id of ["org.omarchy.agent.claude", "org.omarchy.agent.claude-local", "org.omarchy.agent.forge"])
+    assert.equal(Model.isClaudeWindow(id), true)
+  for (const id of ["org.omarchy.agent.cursor", "org.omarchy.agent", "foot", ""])
+    assert.equal(Model.isClaudeWindow(id), false)
+})
+
+test("cleanTitle: drops the spinner, keeps the title", () => {
+  assert.equal(Model.cleanTitle("✳ Widget HUD calendrier"), "Widget HUD calendrier")
+  assert.equal(Model.cleanTitle("◑ Austraz.daybar, refonte"), "Austraz.daybar, refonte")
+  assert.equal(Model.cleanTitle("⠐ Build"), "Build")
+  assert.equal(Model.cleanTitle("Plain"), "Plain")
 })
 
 test("updateTags: leaving a desk does not bring back a seen done", () => {

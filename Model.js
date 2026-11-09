@@ -412,8 +412,7 @@ function currentAddresses(layout) {
 
 // A state tag lasts `ttl` ms from the moment a window's state changes, and
 // ends for good once the window's desk is on screen; a window whose desk is
-// on screen when its state changes gets none, except that a working agent
-// gets its tag again when its desk is left. { address: { state, until } }.
+// on screen when its state changes gets none. { address: { state, until } }.
 // Returns `tags` itself when nothing changed.
 function updateTags(tags, states, onScreen, nowMs, ttl) {
   var next = {}, changed = false
@@ -426,10 +425,6 @@ function updateTags(tags, states, onScreen, nowMs, ttl) {
     } else if (seen && prev.until !== 0) {
       next[address] = { state: prev.state, until: 0 }
       changed = true
-    } else if (!seen && prev.until === 0 && prev.state === "working") {
-      // Still at work on a desk just left: that is news again.
-      next[address] = { state: prev.state, until: nowMs + ttl }
-      changed = true
     } else {
       next[address] = prev
     }
@@ -438,8 +433,21 @@ function updateTags(tags, states, onScreen, nowMs, ttl) {
   return changed ? next : tags
 }
 
+// Claude Code, Claude Code Local and Forge terminals: their title says what
+// the session is about.
+function isClaudeWindow(appId) {
+  return /^org\.omarchy\.agent\.(claude|claude-local|forge)$/.test(String(appId || ""))
+}
+
+// A window title without the spinner Claude Code puts in front of it.
+function cleanTitle(title) {
+  return String(title || "").replace(/^[\s*·•✳✶✻✽✢◐◑◒◓⠀-⣿]+/, "")
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    isClaudeWindow: isClaudeWindow,
+    cleanTitle: cleanTitle,
     currentAddresses: currentAddresses,
     updateTags: updateTags,
     waitingSpan: waitingSpan,

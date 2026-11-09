@@ -10,10 +10,10 @@ the time, this one the space.
   accent, the others are outlines.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
   windows show their current tab's favicon.
-- When an agent changes state on another desk or in the scratchpad, a tag
-  sweeps its window with the desk and the state (`WORK`, `WAIT`, `DONE`) for
-  five minutes, or until you open that desk. Leaving a desk where an agent
-  is still working starts its `WORK` tag.
+- When an agent finishes or gets blocked on another desk or in the scratchpad,
+  a tag sweeps its window for five minutes, or until you open that desk: the
+  window's title for Claude Code, Claude Code Local and Forge, in green when
+  finished and red when blocked; the desk and `DONE` or `WAIT` for the others.
 - **Hold Super** to see the desk numbers, with the bar open or closed.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.
