@@ -81,8 +81,8 @@ Item {
   readonly property int iconX: deployX + 3
   readonly property real backingWidth: railWidth + (deployWidth - railWidth) * openness
   // The windows' cells grow with it, inside its edge, the icons in them.
-  readonly property real cellWidth: backingWidth - 1 - 3 * openness
-  readonly property real iconCenterX: stripWidth - 1 - cellWidth / 2 - 11
+  readonly property real cellWidth: backingWidth - 3 * openness
+  readonly property real iconCenterX: stripWidth - cellWidth / 2 - 11
   readonly property int edgeGap: (cfg.verticalGap >= 0 ? cfg.verticalGap : Style.gapsOut * 2) + 2
   readonly property string barPosition: shell && shell.barConfig ? String(shell.barConfig.position || "top") : "top"
   function barSizeOn(name) { return shell && shell.bar && !shell.bar.barHidden ? shell.bar.barSizeFor(name) : 0 }
@@ -1386,7 +1386,7 @@ Item {
           // The current desk while it holds no window.
           Rectangle {
             visible: !!desk.info && desk.info.count === 0
-            x: root.stripWidth - 1 - root.cellWidth
+            x: root.stripWidth - root.cellWidth
             width: root.cellWidth
             height: parent.height
             radius: 2
@@ -1449,7 +1449,6 @@ Item {
               Rectangle {
                 id: block
                 anchors.right: parent.right
-                anchors.rightMargin: 1
                 width: cell.warning ? root.railWidth + 4 : root.cellWidth
                 height: parent.height
                 radius: 1
@@ -1608,7 +1607,7 @@ Item {
 
         ZoneTrack {}
         Rectangle {
-          x: root.stripWidth - 1 - root.cellWidth
+          x: root.stripWidth - root.cellWidth
           width: root.cellWidth
           height: batteryZone.gauge.filled
           color: root.batteryColor
@@ -1620,7 +1619,7 @@ Item {
           model: batteryZone.gauge.ticks
           delegate: Rectangle {
             required property var modelData
-            x: root.stripWidth - 1 - root.cellWidth
+            x: root.stripWidth - root.cellWidth
             y: modelData
             width: root.cellWidth
             height: 1
@@ -1698,7 +1697,7 @@ Item {
             ZoneTrack {}
             // The forecast, pale, from the share used on.
             Rectangle {
-              x: root.stripWidth - 1 - root.cellWidth
+              x: root.stripWidth - root.cellWidth
               y: gauge.fromTop ? gauge.used : gauge.height - gauge.used - gauge.forecast
               width: root.cellWidth
               height: gauge.forecast
@@ -1706,7 +1705,7 @@ Item {
               WornTape {}
             }
             Rectangle {
-              x: root.stripWidth - 1 - root.cellWidth
+              x: root.stripWidth - root.cellWidth
               y: gauge.fromTop ? 0 : gauge.height - gauge.used
               width: root.cellWidth
               height: gauge.used
@@ -1716,7 +1715,7 @@ Item {
             // How much of the window has gone by.
             Rectangle {
               visible: gauge.g.known && gauge.g.elapsed >= 0
-              x: root.stripWidth - 1 - root.cellWidth
+              x: root.stripWidth - root.cellWidth
               y: (gauge.fromTop ? gauge.height * (gauge.g.elapsed || 0) : gauge.height - gauge.height * (gauge.g.elapsed || 0)) - 1
               width: root.cellWidth
               height: 2
@@ -1770,7 +1769,7 @@ Item {
 
   // The empty part of a battery or limit gauge.
   component ZoneTrack: Rectangle {
-    x: root.stripWidth - 1 - root.cellWidth
+    x: root.stripWidth - root.cellWidth
     width: root.cellWidth
     height: parent.height
     color: Qt.alpha(Color.foreground, 0.1)
