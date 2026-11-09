@@ -62,13 +62,13 @@ Item {
   // Wider only while tags show: their titles need the room, and the surface
   // is redrawn whole.
   readonly property int stripWidth: anyTagLive || deploy > 0 ? 340 : 84
-  // The gauges start right under the windows' top border and end right
-  // above their bottom one, without prolonging them to the screen's corner.
-  readonly property int railInset: 3
-  readonly property real railBottomInset: 1.2
+  // The gauges start level with the top of the windows' top border and end
+  // level with the bottom of their bottom one: the corners line up.
+  readonly property real railInset: 0.8
+  readonly property real railBottomInset: 0
   // The rail, top to bottom: battery 20 %, desks 60 %, Claude's limits 20 %.
   readonly property int zoneHeight: Math.round(strip.height * 0.2)
-  readonly property int deskTop: railInset + zoneHeight + deskGap
+  readonly property real deskTop: railInset + zoneHeight + deskGap
   readonly property int deskGap: 6
   readonly property int railX: stripWidth - railWidth
   // The strip keeps its width for the warning tag and the numbers, but only
