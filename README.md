@@ -29,12 +29,11 @@ The rail gives 60 % of its height to the desks, 20 % to the battery above them
 and 20 % to Claude's limits below them. Hover or hold Super for the values; a
 click opens the Power panel or My Agents.
 
-- **Battery**, from the top, which is now, down a scale of 24 hours cut in
-  one-hour portions: on battery
-  a stripe to the estimated empty time, green at 100 % shading to red at 0 %,
-  blinking under 10 %. Charging, an orange stripe to full, then a green one for
-  how long that charge would last. Plugged in and full, the green runtime from
-  now. Runtimes use the median discharge rate of the last week.
+- **Battery**, filling from the top, the zone being a whole battery with a tick
+  for each hour. Charging, the time to full, in a blinking green. On battery,
+  the time left, from green to yellow, orange and red with the level, blinking at
+  10 % or less. Plugged in without charging, what it would last if unplugged, in
+  green. Runtimes use the median discharge rate of the last week.
 - **Limits**: the week below, filling from its bottom up, and its Fable share
   above, filling from its top down. Each shows the share used, solid, then the forecast at the reset, pale, and a line
   for how much of the window has gone by. Green up to a 70 % forecast, then on

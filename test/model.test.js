@@ -193,16 +193,40 @@ test("updateTags: nothing changed, same object", () => {
   assert.equal(Model.updateTags(live, { a: "done" }, {}, 9000, 300000), live)
 })
 
-test("batteryStripes: the zone's height is a day, from now", () => {
-  assert.deepEqual(Model.batteryStripes(21600, 0, 400), { solid: 100, after: 0 })
-  const both = Model.batteryStripes(21600, 43200, 400)
-  assert.equal(both.after, 200)
+test("batteryGauge: charging fills what is left to charge, one tick an hour", () => {
+  // 50 % left in 2 h: a full charge takes 4 h, an hour is a quarter of the zone.
+  const g = Model.batteryGauge({ mode: "charging", seconds: 7200, percent: 50 }, 400)
+  assert.equal(g.filled, 200)
+  assert.deepEqual(g.ticks, [100])
 })
 
-test("batteryStripes: together they stop short of the end", () => {
-  const long = Model.batteryStripes(86400, 86400, 360)
-  assert.equal(long.solid + long.after, 355)
-  assert.deepEqual(Model.batteryStripes(0, 0, 400), { solid: 0, after: 0 })
+test("batteryGauge: on battery, the zone is a full charge's runtime", () => {
+  // 60 Wh at 10 W: 6 h for the zone. 3 h left fill half of it.
+  const g = Model.batteryGauge({ mode: "discharging", seconds: 10800, capacity: 60, watts: 10, percent: 50 }, 600)
+  assert.equal(g.filled, 300)
+  assert.deepEqual(g.ticks, [100, 200])
+})
+
+test("batteryGauge: on battery without history, from the level", () => {
+  const g = Model.batteryGauge({ mode: "discharging", seconds: 3600, capacity: 0, watts: 0, percent: 25 }, 400)
+  assert.equal(g.filled, 100)
+})
+
+test("batteryGauge: plugged in, what it would last if unplugged", () => {
+  const g = Model.batteryGauge({ mode: "estimate", energy: 60, capacity: 60, watts: 10, percent: 100 }, 600)
+  assert.equal(g.filled, 600)
+  assert.equal(g.ticks.length, 5)
+})
+
+test("batteryGauge: no tick under an hour", () => {
+  const g = Model.batteryGauge({ mode: "discharging", seconds: 720, capacity: 60, watts: 14, percent: 5 }, 300)
+  assert.deepEqual(g.ticks, [])
+  assert.ok(g.filled > 0)
+})
+
+test("median: the middle value, 0 for none", () => {
+  assert.equal(Model.median([300, 100, 200]), 200)
+  assert.equal(Model.median([]), 0)
 })
 
 test("dischargeRate: median of the discharging samples of the period", () => {

@@ -158,11 +158,13 @@ Item {
 
   // ------------------------------------------------------------- battery
   //
-  // As on the minimap's rim. On battery: one stripe from now to the
-  // estimated empty time. Charging: orange to full, then green for how long
-  // a full charge would last. Plugged in and full: green for how long it
-  // would last from now. The green runtimes use the median discharge rate of
-  // the last week (UPower's rate history).
+  // The zone is a whole battery, with a tick per hour on its filled part
+  // (see Model.batteryGauge). Charging: the time to full, in a blinking green.
+  // On battery: the time left, from green to red with the level, blinking at
+  // 10 % or less. Plugged in without charging: what it would last unplugged,
+  // in green. Runtimes use the median discharge rate of the last week
+  // (UPower's rate history); UPower's own estimates jump with the load, so
+  // they are smoothed over five minutes.
 
   readonly property var battery: UPower.displayDevice
   readonly property int batteryPercent: battery && battery.isPresent ? Math.round(Number(battery.percentage || 0) * 100) : -1
@@ -170,19 +172,26 @@ Item {
     && battery.state === UPowerDeviceState.Charging
   readonly property string batteryMode: !battery || !battery.isPresent ? ""
     : UPower.onBattery ? "discharging" : charging ? "charging" : "estimate"
-  readonly property real batterySeconds: batteryMode === "discharging" ? Number(battery.timeToEmpty || 0)
+  readonly property real batteryRawSeconds: batteryMode === "discharging" ? Number(battery.timeToEmpty || 0)
     : batteryMode === "charging" ? Number(battery.timeToFull || 0) : 0
-  property real dischargeWatts: 0
-  readonly property real batteryAfterSeconds: {
-    if (dischargeWatts <= 0) return 0
-    if (batteryMode === "charging") return Number(battery.energyCapacity || battery.energy || 0) / dischargeWatts * 3600
-    if (batteryMode === "estimate") return Number(battery.energy || 0) / dischargeWatts * 3600
-    return 0
+  property var batterySamples: []
+  readonly property real batterySeconds: Model.median(batterySamples) || batteryRawSeconds
+  onBatteryModeChanged: batterySamples = []
+  Timer {
+    interval: 30000
+    running: root.batteryMode === "discharging" || root.batteryMode === "charging"
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (root.batteryRawSeconds > 0) root.batterySamples = root.batterySamples.concat([root.batteryRawSeconds]).slice(-10)
   }
-  readonly property bool batteryLow: batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent < 10
-  readonly property color batteryColor: batteryMode === "charging" ? "#ff9f43"
-    : Qt.hsla(Math.min(Math.max(batteryPercent, 0), 100) / 100 / 3, 0.75, 0.5, 1)
-  readonly property color runtimeColor: "#7fd88f"
+  property real dischargeWatts: 0
+  readonly property real batteryEnergy: battery ? Number(battery.energy || 0) : 0
+  readonly property real batteryCapacity: battery ? Number(battery.energyCapacity || 0) : 0
+  readonly property real batteryAfterSeconds: batteryMode === "estimate" && dischargeWatts > 0 ? batteryEnergy / dischargeWatts * 3600 : 0
+  readonly property bool batteryBlinks: batteryMode === "charging"
+    || (batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10)
+  // Green to yellow, orange and red with the level on battery, green otherwise.
+  readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
   readonly property string batteryText: {
     if (batteryPercent < 0) return ""
     var parts = [batteryPercent + " %"]
@@ -207,7 +216,7 @@ Item {
   }
   Timer {
     interval: 600000
-    running: root.batteryMode === "estimate" || root.batteryMode === "charging"
+    running: root.batteryMode !== ""
     repeat: true
     triggeredOnStart: true
     onTriggered: if (!rateProc.running) rateProc.running = true
@@ -215,7 +224,7 @@ Item {
   property bool batteryBlinkOn: true
   Timer {
     interval: 500
-    running: root.batteryLow && root.animate && win.visible
+    running: root.batteryBlinks && root.animate && win.visible
     repeat: true
     onRunningChanged: root.batteryBlinkOn = true
     onTriggered: root.batteryBlinkOn = !root.batteryBlinkOn
@@ -1431,10 +1440,11 @@ Item {
         }
       }
 
-      // The battery, at the top: now is its top edge, its height a day.
+      // The battery, at the top, filling from its top edge down.
       Item {
         id: batteryZone
-        readonly property var stripes: Model.batteryStripes(root.batterySeconds, root.batteryAfterSeconds, height)
+        readonly property var gauge: Model.batteryGauge({ mode: root.batteryMode, seconds: root.batterySeconds, energy: root.batteryEnergy,
+          capacity: root.batteryCapacity, watts: root.dischargeWatts, percent: root.batteryPercent }, height)
         visible: root.batteryMode !== ""
         y: root.railInset
         width: root.stripWidth
@@ -1444,24 +1454,17 @@ Item {
         Rectangle {
           x: root.stripWidth - 1 - root.cellWidth
           width: root.cellWidth
-          height: batteryZone.stripes.solid
+          height: batteryZone.gauge.filled
           color: root.batteryColor
-          opacity: root.batteryLow && !root.batteryBlinkOn ? 0.2 : 1
-        }
-        Rectangle {
-          x: root.stripWidth - 1 - root.cellWidth
-          y: batteryZone.stripes.solid
-          width: root.cellWidth
-          height: batteryZone.stripes.after
-          color: root.runtimeColor
+          opacity: root.batteryBlinks && !root.batteryBlinkOn ? 0.2 : 1
         }
         // One portion per hour, as on the day tape: a cut and a tick.
         Repeater {
-          model: 23
+          model: batteryZone.gauge.ticks
           delegate: Rectangle {
-            required property int index
+            required property var modelData
             x: root.stripWidth - 1 - root.cellWidth
-            y: Math.round((index + 1) * batteryZone.height / 24)
+            y: modelData
             width: root.cellWidth
             height: 1
             color: Color.background
@@ -1475,7 +1478,7 @@ Item {
         }
         ZoneTag {
           text: root.batteryText
-          ink: root.batteryMode === "charging" ? root.batteryColor : root.bright
+          ink: root.bright
           zoneY: batteryZone.y
           zoneHeight: batteryZone.height
         }
