@@ -961,8 +961,6 @@ Item {
     var p = Math.max(0, Math.min(1, (deploy - a) / (b - a)))
     return 1 - Math.pow(1 - p, 3)
   }
-  // How far the radar's sweep has gone from its origin, in step with wave().
-  readonly property real radarTravel: Math.max(0, (deploy - 0.1) / 0.5) * strip.height
   function wave(y) {
     var a = 0.1 + Math.abs(y - originY) / Math.max(1, strip.height) * 0.5
     return deploySeg(a, a + 0.25)
@@ -1068,14 +1066,9 @@ Item {
             color: root.hud
           }
 
-          // Held Super: the numbers beside the bar, opening with it. Each
-          // one lights up as a blip when the radar's sweep reaches it.
+          // Held Super: the numbers beside the bar, opening with it.
           Rectangle {
-            id: chip
-            readonly property real blip: root.wave(desk.y + desk.height / 2)
             visible: root.superOpen
-            opacity: blip
-            scale: 1.5 - 0.5 * blip
             x: root.stripWidth - root.backingWidth - width - 3
             anchors.verticalCenter: parent.verticalCenter
             width: 18
@@ -1084,20 +1077,6 @@ Item {
             color: root.hudBlack
             border.width: 1
             border.color: desk.current ? root.bright : root.hud
-
-            // The ping going out of the blip.
-            Rectangle {
-              visible: chip.blip > 0 && chip.blip < 1
-              anchors.centerIn: parent
-              width: 18
-              height: 18
-              radius: 9
-              color: "transparent"
-              border.width: 1
-              border.color: root.bright
-              scale: 1 + 2 * chip.blip
-              opacity: 1 - chip.blip
-            }
 
             Text {
               anchors.centerIn: parent
@@ -1308,10 +1287,6 @@ Item {
         }
       }
 
-      // The radar's sweep, leaving the origin both ways as the bar opens.
-      RadarFront { direction: -1; z: 3 }
-      RadarFront { direction: 1; z: 3 }
-
       // The window being dragged, under the pointer.
       Image {
         visible: root.dragAddress !== ""
@@ -1323,36 +1298,6 @@ Item {
         sourceSize: Qt.size(52, 52)
         source: root.dragIcon
       }
-    }
-  }
-
-  // A front of the radar's sweep: a bright line with its glow fading behind.
-  component RadarFront: Item {
-    id: front
-    property int direction: 1
-    readonly property real headY: root.originY + direction * root.radarTravel
-    readonly property color glow: Qt.alpha(root.hud, 0.55)
-    readonly property color clear: Qt.alpha(root.hud, 0)
-
-    visible: root.deployed && root.deploy > 0.1 && root.deploy < 0.8
-    x: root.stripWidth - root.backingWidth
-    y: direction > 0 ? headY - height : headY
-    width: root.backingWidth
-    height: 70
-    opacity: 1 - root.deploySeg(0.55, 0.8)
-
-    Rectangle {
-      anchors.fill: parent
-      gradient: Gradient {
-        GradientStop { position: 0; color: front.direction > 0 ? front.clear : front.glow }
-        GradientStop { position: 1; color: front.direction > 0 ? front.glow : front.clear }
-      }
-    }
-    Rectangle {
-      y: front.direction > 0 ? parent.height - 2 : 0
-      width: parent.width
-      height: 2
-      color: root.bright
     }
   }
 
