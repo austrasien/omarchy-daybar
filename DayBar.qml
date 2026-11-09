@@ -1354,17 +1354,19 @@ Item {
               Rectangle {
                 visible: cell.tagLive && cell.tagWord !== ""
                 // Left of the desk's number when it shows, never over it.
-                x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 3)
+                x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7)
                 y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
-                width: tagText.width + 8
-                height: Math.max(20, tagText.height + 4)
-                radius: 2
+                width: tagText.width + 16
+                height: Math.max(26, tagText.height + 12)
                 color: root.hudBlack
                 border.width: 1
-                border.color: cell.waiting ? root.alarm : root.hud
+                border.color: root.dim
+
+                HudFrame { ink: cell.waiting ? root.alarm : root.hud }
 
                 Text {
                   id: tagText
+                  font.capitalization: Font.AllUppercase
                   anchors.centerIn: parent
                   width: Math.min(implicitWidth, 280)
                   wrapMode: Text.Wrap
@@ -1593,6 +1595,36 @@ Item {
     color: Qt.alpha(Color.foreground, 0.1)
   }
 
+  // The look of the day tape's data card: scan lines and target brackets.
+  component HudFrame: Item {
+    property color ink: root.hud
+    anchors.fill: parent
+
+    Image {
+      anchors.fill: parent
+      fillMode: Image.Tile
+      verticalAlignment: Image.AlignTop
+      horizontalAlignment: Image.AlignLeft
+      source: "data:image/svg+xml," + encodeURIComponent(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='1' fill='"
+        + root.hud + "' fill-opacity='0.07'/></svg>")
+    }
+    HudCorner { x: -3; y: -3; ink: parent.ink }
+    HudCorner { x: parent.width - width + 3; y: -3; onRight: true; ink: parent.ink }
+    HudCorner { x: -3; y: parent.height - height + 3; onBottom: true; ink: parent.ink }
+    HudCorner { x: parent.width - width + 3; y: parent.height - height + 3; onRight: true; onBottom: true; ink: parent.ink }
+  }
+
+  component HudCorner: Item {
+    property color ink: root.hud
+    property bool onRight: false
+    property bool onBottom: false
+    width: 8
+    height: 8
+    Rectangle { x: parent.onRight ? 7 : 0; width: 1; height: 8; color: parent.ink }
+    Rectangle { y: parent.onBottom ? 7 : 0; width: 8; height: 1; color: parent.ink }
+  }
+
   // A gauge's values, beside the open bar.
   component ZoneTag: Rectangle {
     property string text: ""
@@ -1601,14 +1633,15 @@ Item {
     property real zoneHeight: 0
     visible: root.deploy > 0 && text !== ""
     opacity: root.wave(zoneY + zoneHeight / 2)
-    x: root.stripWidth - root.backingWidth - width - 3
+    x: root.stripWidth - root.backingWidth - width - 7
     y: (zoneHeight - height) / 2
-    width: zoneText.implicitWidth + 10
-    height: zoneText.implicitHeight + 6
-    radius: 2
+    width: zoneText.implicitWidth + 16
+    height: zoneText.implicitHeight + 12
     color: root.hudBlack
     border.width: 1
-    border.color: ink
+    border.color: root.dim
+
+    HudFrame { ink: parent.ink }
 
     Text {
       id: zoneText
