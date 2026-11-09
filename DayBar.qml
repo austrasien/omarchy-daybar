@@ -631,8 +631,8 @@ Item {
     onRunningChanged: root.slowOn = true
     onTriggered: root.slowOn = !root.slowOn
   }
-  // A working agent blinks in the dim green; with animations off it holds
-  // there, so it still shows.
+  // A working agent shows by its white bar; with animations off its window
+  // is filled in the dim green instead, so it still shows.
   readonly property bool anyWorking: Object.keys(states).some(function(a) { return root.states[a] === "working" })
   // State tags: five minutes from a window's change of state, until its
   // desk (or the scratchpad) is opened. Kept across shell restarts, and not
@@ -687,11 +687,10 @@ Item {
     onLoadFailed: loaded = true
   }
 
-  // One clock for the blinks, the white bars and the state tags, in steps:
-  // on a thin rail 20 a second look smooth and cost far fewer redraws than
-  // an animation at the display's rate. It runs 0 to 2: a bar goes down and
-  // back up once, and a blink cycle takes half of that. Desks next to each
-  // other blink in opposition.
+  // One clock for the white bars and the state tags, in steps: on a thin
+  // rail 20 a second look smooth and cost far fewer redraws than an
+  // animation at the display's rate. It runs 0 to 2: a bar goes down and
+  // back up once.
   property real workClock: 0
   Timer {
     id: workTimer
@@ -700,8 +699,6 @@ Item {
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
   }
-  readonly property bool workOn: !workTimer.running || workClock % 1 < 0.5
-  readonly property bool workOnOdd: !workTimer.running || workClock % 1 >= 0.5
 
   // ------------------------------------------------------------- actions
 
@@ -1140,7 +1137,6 @@ Item {
                 ? Model.cleanTitle(root.titleOf(info.address)) : ""
               readonly property bool tagLive: !desk.current && !!info
                 && (more ? info.hidden.some(function(a) { return root.tagOn(a) }) : root.tagOn(info.address))
-              readonly property bool workPhase: desk.index % 2 === 0 ? root.workOn : root.workOnOdd
               // Where the white bar is on the clock, drawn anew at each start.
               property real barPhase: Math.random() * 2
               onWorkingChanged: if (working) barPhase = Math.random() * 2
@@ -1167,7 +1163,7 @@ Item {
                 color: cell.waiting ? (root.fastOn ? root.alarm : Qt.darker(root.alarm, 2.2))
                   : cell.done && !desk.current ? (root.slowOn ? root.hud : root.dim)
                   : cell.hovered ? root.dim
-                  : cell.working && !desk.current ? (cell.workPhase ? root.dim : "transparent")
+                  : cell.working && !desk.current && !workTimer.running ? root.dim
                   : desk.current ? root.dim
                   : "transparent"
                 // The other desks are outlines, darkening as they age but

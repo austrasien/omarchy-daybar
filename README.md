@@ -32,9 +32,7 @@ omarchy-shell austraz.daybar agent <session> <working|waiting|done|idle|end> <pi
 ```
 
 - **Working**: a white bar goes up and down the window's cell from a random
-  place, and the cell blinks in the dim green: against the accent on the current
-  desk, against the empty outline on the others. Desks next to each other
-  blink in opposition.
+  place.
 - **Waiting**: a fast red blink; the cell grows out of the rail in a target
   frame, with a `WAIT` tag sweeping it. A Hyprland "urgent" window does the same.
 - **Done**: a slow accent blink until you see the window or its desk, three
