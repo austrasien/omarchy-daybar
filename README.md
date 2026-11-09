@@ -23,6 +23,25 @@ the time, this one the space.
 - The **scratchpad** comes first, reading `0`, while it holds windows.
 - A desk with too many windows ends in a `+n` cell.
 
+## Battery and limits
+
+The rail gives 60 % of its height to the desks, 20 % to the battery above them
+and 20 % to Claude's limits below them. Hover or hold Super for the values; a
+click opens the Power panel or My Agents.
+
+- **Battery**, from the top, which is now, down a scale of 24 hours: on battery
+  a stripe to the estimated empty time, green at 100 % shading to red at 0 %,
+  blinking under 10 %. Charging, an orange stripe to full, then a green one for
+  how long that charge would last. Plugged in and full, the green runtime from
+  now. Runtimes use the median discharge rate of the last week.
+- **Limits**, each filling from its bottom up, the week below and its Fable share
+  above: the share used, solid, then the forecast at the reset, pale, and a line
+  for how much of the window has gone by. Green up to a 70 % forecast, then on
+  to red at 100 %. A gauge turning red blinks. They read what
+  My Agents writes in
+  `~/.local/state/omarchy/agents/usage/claude.json`, and fade when it is older
+  than 15 minutes.
+
 ## Agents
 
 Any reporter that speaks Spaces' agent IPC works:

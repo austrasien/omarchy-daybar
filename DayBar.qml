@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import Quickshell.Services.UPower
 import qs.Commons
 import "Model.js" as Model
 
@@ -60,10 +61,13 @@ Item {
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
   // Wider only while tags show: their titles need the room, and the surface
   // is redrawn whole.
-  readonly property int stripWidth: anyTagLive ? 340 : 84
+  readonly property int stripWidth: anyTagLive || deploy > 0 ? 340 : 84
   // The desks stop short of the ends, or the top outline would line up
   // with the windows' border and prolong it to the corner of the screen.
   readonly property int railInset: 4
+  // The rail, top to bottom: battery 20 %, desks 60 %, Claude's limits 20 %.
+  readonly property int zoneHeight: Math.round(strip.height * 0.2)
+  readonly property int deskTop: railInset + zoneHeight + deskGap
   readonly property int deskGap: 6
   readonly property int railX: stripWidth - railWidth
   // The strip keeps its width for the warning tag and the numbers, but only
@@ -150,6 +154,138 @@ Item {
   readonly property real nowSec: now.getTime() / 1000
   readonly property real startedAt: Date.now() / 1000
   Timer { interval: 15000; running: true; repeat: true; onTriggered: root.now = new Date() }
+
+  // ------------------------------------------------------------- battery
+  //
+  // As on the minimap's rim. On battery: one stripe from now to the
+  // estimated empty time. Charging: orange to full, then green for how long
+  // a full charge would last. Plugged in and full: green for how long it
+  // would last from now. The green runtimes use the median discharge rate of
+  // the last week (UPower's rate history).
+
+  readonly property var battery: UPower.displayDevice
+  readonly property int batteryPercent: battery && battery.isPresent ? Math.round(Number(battery.percentage || 0) * 100) : -1
+  readonly property bool charging: !!battery && battery.isPresent && !UPower.onBattery
+    && battery.state === UPowerDeviceState.Charging
+  readonly property string batteryMode: !battery || !battery.isPresent ? ""
+    : UPower.onBattery ? "discharging" : charging ? "charging" : "estimate"
+  readonly property real batterySeconds: batteryMode === "discharging" ? Number(battery.timeToEmpty || 0)
+    : batteryMode === "charging" ? Number(battery.timeToFull || 0) : 0
+  property real dischargeWatts: 0
+  readonly property real batteryAfterSeconds: {
+    if (dischargeWatts <= 0) return 0
+    if (batteryMode === "charging") return Number(battery.energyCapacity || battery.energy || 0) / dischargeWatts * 3600
+    if (batteryMode === "estimate") return Number(battery.energy || 0) / dischargeWatts * 3600
+    return 0
+  }
+  readonly property bool batteryLow: batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent < 10
+  readonly property color batteryColor: batteryMode === "charging" ? "#ff9f43"
+    : Qt.hsla(Math.min(Math.max(batteryPercent, 0), 100) / 100 / 3, 0.75, 0.5, 1)
+  readonly property color runtimeColor: "#7fd88f"
+  readonly property string batteryText: {
+    if (batteryPercent < 0) return ""
+    var parts = [batteryPercent + " %"]
+    if (batteryMode === "discharging" && batterySeconds > 0) parts.push(Model.durationText(batterySeconds))
+    if (batteryMode === "charging" && batterySeconds > 0) parts.push("plein " + Model.durationText(batterySeconds))
+    if (batteryMode === "estimate" && batteryAfterSeconds > 0) parts.push(Model.durationText(batteryAfterSeconds))
+    var watts = battery ? Math.abs(Number(battery.changeRate || 0)) : 0
+    if (watts > 0.5) parts.push(Math.round(watts) + " W")
+    return parts.join(" · ")
+  }
+  Process {
+    id: rateProc
+    command: ["sh", "-c", "gdbus call --system --dest org.freedesktop.UPower"
+      + " --object-path \"$(upower -e | grep -m1 /battery_)\""
+      + " --method org.freedesktop.UPower.Device.GetHistory rate 604800 4000"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var w = Model.dischargeRate(text, Date.now() / 1000, 7)
+        if (w > 0) root.dischargeWatts = w
+      }
+    }
+  }
+  Timer {
+    interval: 600000
+    running: root.batteryMode === "estimate" || root.batteryMode === "charging"
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (!rateProc.running) rateProc.running = true
+  }
+  property bool batteryBlinkOn: true
+  Timer {
+    interval: 500
+    running: root.batteryLow && root.animate && win.visible
+    repeat: true
+    onRunningChanged: root.batteryBlinkOn = true
+    onTriggered: root.batteryBlinkOn = !root.batteryBlinkOn
+  }
+
+  // ---------------------------------------------------------- AI limits
+  //
+  // Claude's two weekly limits, from what My Agents writes (usage/claude.json,
+  // its `limits` and their `forecast`); nothing is fetched here. Data older
+  // than 15 minutes fades the gauges and sends no alert.
+
+  property var usageLimits: []
+  property real usageUpdatedAt: 0
+  readonly property bool usageStale: usageUpdatedAt > 0 && nowSec - usageUpdatedAt > 900
+  readonly property var gauges: Model.usageGauges(usageLimits, nowSec)
+  FileView {
+    id: usageFile
+    path: (Quickshell.env("XDG_STATE_HOME") || root.home + "/.local/state") + "/omarchy/agents/usage/claude.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var d = JSON.parse(String(text() || "{}"))
+        root.usageLimits = Array.isArray(d.limits) ? d.limits : []
+        root.usageUpdatedAt = Model.isoEpoch(d.updatedAt)
+      } catch (e) {}
+    }
+  }
+  // The file is replaced on every refresh, which can drop the watch.
+  Timer { interval: 60000; running: true; repeat: true; onTriggered: usageFile.reload() }
+
+  readonly property var weekDays: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."]
+  function clockText(sec) {
+    var d = new Date(sec * 1000)
+    var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
+    return d.toDateString() === now.toDateString() ? hm : weekDays[d.getDay()] + " " + hm
+  }
+  function gaugeText(g) {
+    if (!g || !g.known) return ""
+    var head = g.label + " " + Math.round(g.used * 100) + " % → "
+      + (g.risk === "full" && g.cap > 0 ? "plein " + clockText(g.cap) : Math.round(g.forecast * 100) + " %")
+    return g.reset > 0 ? head + "\nreset " + clockText(g.reset) : head
+  }
+
+  // A gauge turning red blinks, once per window. Those already red when the
+  // bar starts (a shell restart) stay quiet.
+  property var gaugesTold: ({})
+  property bool gaugesPrimed: false
+  property int gaugeBlinkIndex: -1
+  property real gaugeBlinkLevel: 1
+  onGaugesChanged: {
+    if (usageStale || !usageLimits.length) return
+    var next = null
+    for (var i = 0; i < gauges.length; i++) {
+      var g = gauges[i]
+      if (!g.known || g.risk !== "full" || gaugesTold[g.window]) continue
+      if (!next) next = Object.assign({}, gaugesTold)
+      next[g.window] = true
+      if (gaugesPrimed && animate) { gaugeBlinkIndex = i; gaugeBlink.restart() }
+    }
+    if (next) gaugesTold = next
+    gaugesPrimed = true
+  }
+  SequentialAnimation {
+    id: gaugeBlink
+    loops: 4
+    NumberAnimation { target: root; property: "gaugeBlinkLevel"; to: 0.2; duration: 260 }
+    NumberAnimation { target: root; property: "gaugeBlinkLevel"; to: 1; duration: 260 }
+    onFinished: root.gaugeBlinkIndex = -1
+  }
 
   property var lastFocus: ({})
   // { session: { state, pids, address } }, fed by the `agent` IPC call.
@@ -854,7 +990,7 @@ Item {
   // What a waiting window's frame draws past the rail.
   readonly property var warningZone: {
     var span = Model.waitingSpan(layout, states)
-    return span ? { x: railX - 7, y: span.y + railInset - 1, width: 7, height: span.height + 2 } : { x: 0, y: 0, width: 0, height: 0 }
+    return span ? { x: railX - 7, y: span.y + deskTop - 1, width: 7, height: span.height + 2 } : { x: 0, y: 0, width: 0, height: 0 }
   }
 
   readonly property var layoutNow: {
@@ -874,7 +1010,7 @@ Item {
     if (currentWorkspace > 0) desk(currentWorkspace)
     var list = Object.keys(byId).map(function(k) { return byId[k] }).sort(Model.deskOrder)
     list.forEach(function(d) { d.windows.sort(Model.windowOrder) })
-    return Model.deskLayout(list, strip.height - 2 * railInset, { gap: deskGap, cellGap: 2, minCell: 24, maxCells: 12 })
+    return Model.deskLayout(list, strip.height - 2 * deskTop, { gap: deskGap, cellGap: 2, minCell: 24, maxCells: 12 })
   }
 
   // Reassigned only when what the rail draws changed: the windows are
@@ -901,7 +1037,7 @@ Item {
   property string dragIcon: ""
   property int dragFrom: 0
   property point dragPoint: Qt.point(0, 0)
-  readonly property var dragOver: dragAddress !== "" ? Model.deskAt(layout, dragPoint.y - railInset) : null
+  readonly property var dragOver: dragAddress !== "" ? Model.deskAt(layout, dragPoint.y - deskTop) : null
 
   function startDrag(cell, deskId, point) {
     dragged = true
@@ -1044,7 +1180,7 @@ Item {
           readonly property bool dropTarget: !!root.dragOver && root.dragOver.id === deskId && deskId !== root.dragFrom
 
           width: root.stripWidth
-          y: info ? info.y + root.railInset : 0
+          y: info ? info.y + root.deskTop : 0
           height: info ? info.height : 0
           Behavior on y { NumberAnimation { duration: root.dur(260); easing.type: Easing.OutBack } }
           Behavior on height { NumberAnimation { duration: root.dur(260); easing.type: Easing.OutBack } }
@@ -1289,6 +1425,125 @@ Item {
         }
       }
 
+      // The battery, at the top: now is its top edge, its height a day.
+      Item {
+        id: batteryZone
+        readonly property var stripes: Model.batteryStripes(root.batterySeconds, root.batteryAfterSeconds, height)
+        visible: root.batteryMode !== ""
+        y: root.railInset
+        width: root.stripWidth
+        height: root.zoneHeight
+
+        ZoneTrack {}
+        Rectangle {
+          x: root.stripWidth - 1 - root.cellWidth
+          width: root.cellWidth
+          height: batteryZone.stripes.solid
+          color: root.batteryColor
+          opacity: root.batteryLow && !root.batteryBlinkOn ? 0.2 : 1
+        }
+        Rectangle {
+          x: root.stripWidth - 1 - root.cellWidth
+          y: batteryZone.stripes.solid
+          width: root.cellWidth
+          height: batteryZone.stripes.after
+          color: root.runtimeColor
+        }
+        ZoneTag {
+          text: root.batteryText
+          ink: root.batteryMode === "charging" ? root.batteryColor : root.bright
+          zoneY: batteryZone.y
+          zoneHeight: batteryZone.height
+        }
+        ZoneClick { command: ["omarchy-shell", "austraz.power", "toggle"] }
+      }
+
+      // The ticks around the desks.
+      Rectangle {
+        x: root.stripWidth - root.backingWidth
+        y: root.deskTop - (root.deskGap + height) / 2
+        width: root.backingWidth
+        height: 2
+        color: root.hud
+      }
+      Rectangle {
+        x: root.stripWidth - root.backingWidth
+        y: strip.height - root.deskTop + (root.deskGap - height) / 2
+        width: root.backingWidth
+        height: 2
+        color: root.hud
+      }
+
+      // Claude's limits, at the bottom: the week below, Fable above it, each
+      // filling from its bottom up.
+      Item {
+        id: aiZone
+        readonly property real gaugeHeight: (height - root.deskGap) / 2
+        visible: root.usageLimits.length > 0
+        opacity: root.usageStale ? 0.4 : 1
+        y: strip.height - root.railInset - height
+        width: root.stripWidth
+        height: root.zoneHeight
+
+        Repeater {
+          model: 2
+          delegate: Item {
+            id: gauge
+            required property int index
+            readonly property var g: root.gauges[index] || ({ known: false })
+            readonly property color ink: g.known ? Qt.hsla(Model.gaugeHue(g), 0.75, 0.5, 1) : root.dim
+            readonly property real used: g.known ? Math.min(1, g.used) * height : 0
+            readonly property real forecast: g.known ? Math.max(0, Math.min(1, g.forecast) - Math.min(1, g.used)) * height : 0
+
+            y: index === 0 ? aiZone.height - height : 0
+            width: root.stripWidth
+            height: aiZone.gaugeHeight
+            opacity: root.gaugeBlinkIndex === index ? root.gaugeBlinkLevel : 1
+
+            ZoneTrack {}
+            // The forecast, pale, from the share used on.
+            Rectangle {
+              x: root.stripWidth - 1 - root.cellWidth
+              y: gauge.height - gauge.used - gauge.forecast
+              width: root.cellWidth
+              height: gauge.forecast
+              color: Qt.alpha(gauge.ink, 0.35)
+            }
+            Rectangle {
+              x: root.stripWidth - 1 - root.cellWidth
+              y: gauge.height - gauge.used
+              width: root.cellWidth
+              height: gauge.used
+              color: Qt.alpha(gauge.ink, 0.85)
+            }
+            // How much of the window has gone by.
+            Rectangle {
+              visible: gauge.g.known && gauge.g.elapsed >= 0
+              x: root.stripWidth - 1 - root.cellWidth
+              y: gauge.height - gauge.height * (gauge.g.elapsed || 0) - 1
+              width: root.cellWidth
+              height: 2
+              color: Color.foreground
+            }
+            ZoneTag {
+              text: root.gaugeText(gauge.g)
+              ink: gauge.ink
+              zoneY: aiZone.y + gauge.y
+              zoneHeight: gauge.height
+            }
+            ZoneClick { command: ["omarchy-shell", "omarchy.agents", "toggle"] }
+          }
+        }
+        // The tick between the two limits.
+        Rectangle {
+          x: root.stripWidth - root.backingWidth
+          y: aiZone.gaugeHeight + (root.deskGap - height) / 2
+          width: root.backingWidth
+          height: 2
+          color: root.hud
+        }
+      }
+
       // The window being dragged, under the pointer.
       Image {
         visible: root.dragAddress !== ""
@@ -1301,6 +1556,53 @@ Item {
         source: root.dragIcon
       }
     }
+  }
+
+  // The empty part of a battery or limit gauge.
+  component ZoneTrack: Rectangle {
+    x: root.stripWidth - 1 - root.cellWidth
+    width: root.cellWidth
+    height: parent.height
+    color: Qt.alpha(Color.foreground, 0.1)
+  }
+
+  // A gauge's values, beside the open bar.
+  component ZoneTag: Rectangle {
+    property string text: ""
+    property color ink: root.bright
+    property real zoneY: 0
+    property real zoneHeight: 0
+    visible: root.deploy > 0 && text !== ""
+    opacity: root.wave(zoneY + zoneHeight / 2)
+    x: root.stripWidth - root.backingWidth - width - 3
+    y: (zoneHeight - height) / 2
+    width: zoneText.implicitWidth + 10
+    height: zoneText.implicitHeight + 6
+    radius: 2
+    color: root.hudBlack
+    border.width: 1
+    border.color: ink
+
+    Text {
+      id: zoneText
+      anchors.centerIn: parent
+      text: parent.text
+      textFormat: Text.PlainText
+      color: parent.ink
+      font.family: Style.fontFamily
+      font.pixelSize: 13
+      font.bold: true
+    }
+  }
+
+  // A click on a gauge opens its panel.
+  component ZoneClick: MouseArea {
+    property var command: []
+    anchors.right: parent.right
+    width: root.deployed ? root.deployWidth : root.railWidth
+    height: parent.height
+    cursorShape: Qt.PointingHandCursor
+    onClicked: Quickshell.execDetached(command)
   }
 
   IpcHandler {

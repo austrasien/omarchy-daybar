@@ -444,8 +444,91 @@ function cleanTitle(title) {
   return String(title || "").replace(/^[\s*·•✳✶✻✽✢◐◑◒◓⠀-⣿]+/, "")
 }
 
+// The battery on its zone of the rail, as on the minimap's 24 h dial: the
+// top is now and the zone's height is a day. `solid` runs from now to empty
+// (or to full while charging), `after` is what a charge would then last.
+// Together they stop short of the end, as the dial stopped short of a turn.
+function batteryStripes(seconds, afterSeconds, height) {
+  var most = height * 355 / 360
+  var solid = seconds > 0 ? Math.min(most, seconds / 86400 * height) : 0
+  var after = afterSeconds > 0 ? Math.min(most - solid, afterSeconds / 86400 * height) : 0
+  return { solid: solid, after: after }
+}
+
+// UPower GetHistory("rate") as printed by gdbus: (time, watts, state)
+// tuples, state 2 = discharging. Median discharge rate over the last
+// `days`, in watts, or 0 when there is nothing to go on.
+function dischargeRate(text, nowSec, days) {
+  var re = /\((?:uint32 )?(\d+), ([\d.]+), (?:uint32 )?(\d+)\)/g
+  var rates = [], m
+  var since = nowSec - (days || 7) * 86400
+  while ((m = re.exec(String(text || ""))) !== null) {
+    var t = Number(m[1]), w = Number(m[2]), st = Number(m[3])
+    if (st === 2 && t >= since && w > 0.5) rates.push(w)
+  }
+  if (rates.length === 0) return 0
+  rates.sort(function(a, b) { return a - b })
+  return rates[Math.floor(rates.length / 2)]
+}
+
+function durationText(seconds) {
+  if (!(seconds > 0)) return ""
+  var m = Math.round(seconds / 60)
+  if (m < 60) return m + " min"
+  var rest = m % 60
+  return Math.floor(m / 60) + " h " + (rest < 10 ? "0" : "") + rest
+}
+
+// ISO times with microseconds, which Date.parse does not take. Epoch seconds.
+function isoEpoch(iso) {
+  var t = Date.parse(String(iso || "").replace(/(\.\d{3})\d+/, "$1"))
+  return isNaN(t) ? 0 : t / 1000
+}
+
+// Claude's two weekly limits, as usage/claude.json has them: the week first
+// (the bottom gauge), then the week's Fable share. used and forecast are
+// shares of the limit, elapsed how much of the window has gone by (-1 when
+// unknown), risk "full" when the limit would be hit before the reset.
+var GAUGE_SPECS = [
+  { key: "weekly", label: "7j", span: 7 * 86400, match: /^weekly/i },
+  { key: "fable", label: "F", span: 7 * 86400, match: /fable/i }
+]
+
+function usageGauges(limits, nowSec) {
+  return GAUGE_SPECS.map(function(spec) {
+    var limit = null
+    for (var j = 0; j < (limits || []).length; j++)
+      if (spec.match.test(String(limits[j].label || ""))) { limit = limits[j]; break }
+    if (!limit) return { key: spec.key, label: spec.label, known: false }
+    var used = Math.max(0, Number(limit.percent) || 0)
+    var f = limit.forecast || {}
+    var forecast = Math.max(used, Number(f.mid) || used)
+    var reset = isoEpoch(limit.resetsAt)
+    var cap = isoEpoch(f.capAt)
+    var full = used >= 1 || forecast >= 1 || (cap > 0 && (reset === 0 || cap < reset))
+    return {
+      key: spec.key, label: spec.label, known: true, used: used, forecast: forecast, reset: reset, cap: cap,
+      elapsed: reset > 0 ? clamp(1 - (reset - nowSec) / spec.span, 0, 1) : -1,
+      risk: full ? "full" : "ok",
+      window: spec.key + "|" + String(limit.resetsAt || "")
+    }
+  })
+}
+
+// A gauge's hue: green (1/3) up to a 70 % forecast, then on to red (0) at 100 %.
+function gaugeHue(gauge) {
+  var t = gauge.risk === "full" ? 1 : clamp((gauge.forecast - 0.7) / 0.3, 0, 1)
+  return (1 - t) / 3
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    batteryStripes: batteryStripes,
+    dischargeRate: dischargeRate,
+    durationText: durationText,
+    isoEpoch: isoEpoch,
+    usageGauges: usageGauges,
+    gaugeHue: gaugeHue,
     isClaudeWindow: isClaudeWindow,
     cleanTitle: cleanTitle,
     currentAddresses: currentAddresses,

@@ -193,6 +193,62 @@ test("updateTags: nothing changed, same object", () => {
   assert.equal(Model.updateTags(live, { a: "done" }, {}, 9000, 300000), live)
 })
 
+test("batteryStripes: the zone's height is a day, from now", () => {
+  assert.deepEqual(Model.batteryStripes(21600, 0, 400), { solid: 100, after: 0 })
+  const both = Model.batteryStripes(21600, 43200, 400)
+  assert.equal(both.after, 200)
+})
+
+test("batteryStripes: together they stop short of the end", () => {
+  const long = Model.batteryStripes(86400, 86400, 360)
+  assert.equal(long.solid + long.after, 355)
+  assert.deepEqual(Model.batteryStripes(0, 0, 400), { solid: 0, after: 0 })
+})
+
+test("dischargeRate: median of the discharging samples of the period", () => {
+  const now = 1000000
+  const text = "[(uint32 999000, 10.0, uint32 2), (999100, 20.0, 2), (999200, 90.0, 2), (999300, 50.0, 1), (10, 5.0, 2)]"
+  assert.equal(Model.dischargeRate(text, now, 7), 20)
+  assert.equal(Model.dischargeRate("", now, 7), 0)
+})
+
+test("durationText", () => {
+  assert.equal(Model.durationText(0), "")
+  assert.equal(Model.durationText(600), "10 min")
+  assert.equal(Model.durationText(3900), "1 h 05")
+})
+
+test("usageGauges: week first, then Fable, read from the limits", () => {
+  const limits = [
+    { label: "Fable Weekly", percent: 0.96, resetsAt: "2026-11-11T20:00:00.348484+00:00", forecast: { mid: 1.2, capAt: "2026-11-10T03:10:53.819628+00:00" } },
+    { label: "Weekly (7-day)", percent: 0.72, resetsAt: "2026-11-11T20:00:00.348312+00:00", forecast: { mid: 0.9476, capAt: "" } }
+  ]
+  const reset = Date.parse("2026-11-11T20:00:00.348Z") / 1000
+  const [week, fable] = Model.usageGauges(limits, reset - 2 * 86400)
+  assert.equal(week.key, "weekly")
+  assert.equal(week.used, 0.72)
+  assert.equal(week.risk, "ok")
+  assert.ok(Math.abs(week.elapsed - 5 / 7) < 1e-6)
+  assert.equal(fable.key, "fable")
+  assert.equal(fable.risk, "full")
+  assert.ok(fable.cap > 0)
+})
+
+test("usageGauges: a limit the file lacks is unknown", () => {
+  assert.deepEqual(Model.usageGauges([], 0).map((g) => g.known), [false, false])
+})
+
+test("usageGauges: forecast never below what is used", () => {
+  const [week] = Model.usageGauges([{ label: "Weekly", percent: 0.5, forecast: { mid: 0.2 } }], 0)
+  assert.equal(week.forecast, 0.5)
+  assert.equal(week.elapsed, -1)
+})
+
+test("gaugeHue: green up to a 70 % forecast, red at 100 % or when full", () => {
+  assert.equal(Model.gaugeHue({ forecast: 0.6, risk: "ok" }), 1 / 3)
+  assert.equal(Model.gaugeHue({ forecast: 0.99, risk: "full" }), 0)
+})
+
 test("deskDarkness: grey for 2 min, black at 1 h", () => {
   assert.equal(Model.deskDarkness(60), 0)
   assert.equal(Model.deskDarkness(3600), 1)
