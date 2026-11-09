@@ -26,7 +26,7 @@ the time, this one the space.
 ## Battery and limits
 
 The rail gives 60 % of its height to the desks, 20 % to the battery above them
-and 20 % to Claude's limits below them. Hovering one of them shows its card, with
+and 20 % to Claude's limits below them. Hovering one of them shows its card, opening as a target lock, with
 the battery's details, power chart and busiest apps, or Claude's last 90 days and
 tokens by day; a click opens the Power panel or My Agents.
 

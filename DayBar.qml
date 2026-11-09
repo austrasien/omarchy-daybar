@@ -307,6 +307,7 @@ Item {
     var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
     return d.toDateString() === now.toDateString() ? hm : weekDays[d.getDay()] + " " + hm
   }
+  function gaugeInk(g) { return g && g.known ? Qt.hsla(Model.gaugeHue(g), 0.75, 0.5, 1) : root.dim }
   function gaugeRows(g) {
     if (!g || !g.known) return []
     var rows = []
@@ -1613,7 +1614,7 @@ Item {
             id: gauge
             required property int index
             readonly property var g: root.gauges[index] || ({ known: false })
-            readonly property color ink: g.known ? Qt.hsla(Model.gaugeHue(g), 0.75, 0.5, 1) : root.dim
+            readonly property color ink: root.gaugeInk(g)
             readonly property real used: g.known ? Math.min(1, g.used) * height : 0
             readonly property real forecast: g.known ? Math.max(0, Math.min(1, g.forecast) - Math.min(1, g.used)) * height : 0
             readonly property bool fromTop: index === 1
@@ -1648,21 +1649,29 @@ Item {
               height: 2
               color: Color.foreground
             }
-            ZoneTag {
-              head: gauge.index === 0 ? "WEEKLY" : "FABLE"
-              status: gauge.g.known ? (gauge.g.risk === "full" ? "OVER LIMIT" : "ON TRACK") : ""
-              title: gauge.g.known ? Math.round(gauge.g.used * 100) + " % → " + Math.round(gauge.g.forecast * 100) + " %" : ""
-              rows: root.gaugeRows(gauge.g)
-              ink: gauge.ink
-              zone: gauge.index === 0 ? "weekly" : "fable"
-              zoneY: aiZone.y + gauge.y
-              zoneHeight: gauge.height
-
-              AiGraphs {}
-            }
-            ZoneClick { zone: gauge.index === 0 ? "weekly" : "fable"; command: ["omarchy-shell", "omarchy.agents", "toggle"] }
+            ZoneClick { zone: "ai"; command: ["omarchy-shell", "omarchy.agents", "toggle"] }
           }
         }
+        // One card for both limits: Fable on the left, the week on the right.
+        ZoneTag {
+          readonly property bool anyFull: root.gauges.some(function(g) { return g.known && g.risk === "full" })
+          zone: "ai"
+          hasContent: root.usageLimits.length > 0
+          reticle: false
+          head: "CLAUDE"
+          status: anyFull ? "OVER LIMIT" : "ON TRACK"
+          statusInk: anyFull ? Qt.hsla(0, 0.75, 0.5, 1) : root.hud
+          zoneY: aiZone.y
+          zoneHeight: aiZone.height
+
+          Row {
+            spacing: 16
+            GaugeColumn { name: "FABLE"; gauge: root.gauges[1] || ({ known: false }) }
+            GaugeColumn { name: "WEEKLY"; gauge: root.gauges[0] || ({ known: false }) }
+          }
+          AiGraphs {}
+        }
+
         // The tick between the two limits.
         Rectangle {
           x: root.stripWidth - root.backingWidth
@@ -1697,124 +1706,237 @@ Item {
 
   // A small version of the day tape's data card: a header with a status, a
   // scale, a large title, rows of readings, a reticle, scan lines and target
-  // brackets.
-  component HudCard: Rectangle {
+  // brackets. It opens like the day tape's, as a target lock, on one timeline
+  // `t` from 0 to 1: the panel wipes open from the rail, the brackets close in
+  // and blink, a scan line paints the content while the reticle spins down
+  // onto the target, and a flash marks the lock.
+  component HudCard: Item {
     id: hudCard
     property color ink: root.hud
     property string head: ""
     property string status: ""
+    property color statusInk: ink
     property string title: ""
     property var rows: []
+    property bool reticle: true
     default property alias content: hudExtra.data
+    property real t: 1
+    property real spin: 0
+    property real spinFrom: 180
+    property int spinMs: 1200
+    readonly property real spread: (1 - seg(0.3, 0.6)) * 14
+    readonly property real bracketOpacity: t < 0.3 ? 0 : (t > 0.62 && t < 0.66) || (t > 0.7 && t < 0.74) ? 0.15 : 1
     width: 300
     height: hudBody.implicitHeight + 28
-    color: root.hudBlack
-    border.width: 1
-    border.color: root.dim
 
-    Image {
-      anchors.fill: parent
-      fillMode: Image.Tile
-      verticalAlignment: Image.AlignTop
-      horizontalAlignment: Image.AlignLeft
-      source: "data:image/svg+xml," + encodeURIComponent(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='1' fill='"
-        + root.hud + "' fill-opacity='0.07'/></svg>")
+    function seg(a, b) {
+      var p = Math.max(0, Math.min(1, (t - a) / (b - a)))
+      return 1 - Math.pow(1 - p, 3)
+    }
+    function lock() {
+      lockAnimation.stop()
+      spinFrom = 70 + Math.random() * 220
+      spinMs = 600 + Math.random() * 1200
+      t = 0
+      spin = 1
+      lockAnimation.restart()
+    }
+    onVisibleChanged: if (visible) lock()
+    Component.onCompleted: if (visible) lock()
+
+    ParallelAnimation {
+      id: lockAnimation
+      NumberAnimation { target: hudCard; property: "spin"; from: 1; to: 0; duration: root.dur(hudCard.spinMs) }
+      SequentialAnimation {
+        NumberAnimation { target: hudCard; property: "t"; to: 0.74; duration: root.dur(533) }
+        PauseAnimation { duration: root.dur(Math.max(0, hudCard.spinMs - 533)) }
+        NumberAnimation { target: hudCard; property: "t"; to: 1; duration: root.dur(187) }
+      }
     }
 
-    Column {
-      id: hudBody
-      x: 14
-      y: 14
-      width: hudCard.width - 28
-      spacing: 6
+    Item {
+      id: hudWipe
+      anchors.right: parent.right
+      width: hudCard.width * hudCard.seg(0.1, 0.4)
+      height: parent.height
+      clip: true
 
       Item {
-        width: parent.width
-        height: hudHead.implicitHeight
-        HudLabel { id: hudHead; text: "◆ " + hudCard.head; color: root.hud }
-        HudLabel { anchors.right: parent.right; text: hudCard.status; color: hudCard.ink }
-      }
+        x: hudWipe.width - hudCard.width
+        width: hudCard.width
+        height: hudCard.height
 
-      Item {
-        id: hudScale
-        width: parent.width
-        height: 5
-        Rectangle { width: parent.width; height: 1; color: root.dim }
-        Repeater {
-          model: 25
-          delegate: Rectangle {
-            required property int index
-            x: index * (hudScale.width - 1) / 24
-            y: 1
-            width: 1
-            height: index % 4 === 0 ? 4 : 2
-            color: root.dim
+        Rectangle {
+          anchors.fill: parent
+          color: root.hudBlack
+          border.width: 1
+          border.color: root.dim
+        }
+        Image {
+          anchors.fill: parent
+          fillMode: Image.Tile
+          verticalAlignment: Image.AlignTop
+          horizontalAlignment: Image.AlignLeft
+          source: "data:image/svg+xml," + encodeURIComponent(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='1' fill='"
+            + root.hud + "' fill-opacity='0.07'/></svg>")
+        }
+
+        // The content, painted down as the scan line passes.
+        Item {
+          id: hudPainted
+          width: parent.width
+          height: parent.height * hudCard.seg(0.35, 0.85)
+          clip: true
+
+          Column {
+            id: hudBody
+            x: 14
+            y: 14
+            width: hudCard.width - 28
+            spacing: 6
+
+            Item {
+              width: parent.width
+              height: hudHead.implicitHeight
+              HudLabel { id: hudHead; text: "◆ " + hudCard.head; color: root.hud }
+              HudLabel {
+                anchors.right: parent.right
+                text: hudCard.t < 0.75 ? "ACQUIRING" : hudCard.status
+                color: hudCard.t < 0.75 ? root.bright : hudCard.statusInk
+                opacity: hudCard.t >= 0.75 || Math.floor(hudCard.t * 24) % 2 ? 1 : 0.3
+              }
+            }
+
+            Item {
+              id: hudScale
+              width: parent.width
+              height: 5
+              Rectangle { width: parent.width; height: 1; color: root.dim }
+              Repeater {
+                model: 25
+                delegate: Rectangle {
+                  required property int index
+                  x: index * (hudScale.width - 1) / 24
+                  y: 1
+                  width: 1
+                  height: index % 4 === 0 ? 4 : 2
+                  color: root.dim
+                }
+              }
+            }
+
+            Text {
+              visible: hudCard.title !== ""
+              width: parent.width - (hudCard.reticle ? 44 : 0)
+              text: hudCard.title
+              textFormat: Text.PlainText
+              color: hudCard.ink
+              wrapMode: Text.Wrap
+              maximumLineCount: 3
+              elide: Text.ElideRight
+              font.family: Style.fontFamily
+              font.pixelSize: 15
+              font.bold: true
+              font.capitalization: Font.AllUppercase
+            }
+
+            Repeater {
+              model: hudCard.rows
+              delegate: Row {
+                required property var modelData
+                spacing: 8
+                HudLabel { width: 44; text: modelData.k; color: root.dim }
+                HudLabel { text: modelData.v; color: root.bright; font.bold: false }
+              }
+            }
+
+            Column {
+              id: hudExtra
+              width: parent.width
+              spacing: 6
+            }
+          }
+
+          // The reticle spins down onto the target and stops at the lock.
+          Item {
+            visible: hudCard.reticle
+            x: hudCard.width - 14 - width
+            y: 40
+            width: 34
+            height: 34
+            scale: 1 + (1 - hudCard.seg(0.3, 0.75)) * 0.6
+
+            Item {
+              anchors.fill: parent
+              rotation: hudCard.spin * hudCard.spinFrom
+
+              Rectangle { anchors.fill: parent; anchors.margins: 5; radius: width / 2; color: "transparent"; border.width: 1; border.color: root.bright }
+              Rectangle { x: parent.width / 2; width: 1; height: 9; color: root.bright }
+              Rectangle { x: parent.width / 2; y: parent.height - 9; width: 1; height: 9; color: root.bright }
+              Rectangle { y: parent.height / 2; width: 9; height: 1; color: root.bright }
+              Rectangle { x: parent.width - 9; y: parent.height / 2; width: 9; height: 1; color: root.bright }
+              Rectangle { x: parent.width / 2 - 3; y: 2; width: 7; height: 3; color: root.bright }
+            }
+            Rectangle {
+              anchors.centerIn: parent
+              width: 10
+              height: 10
+              color: "transparent"
+              border.width: 1
+              border.color: root.hud
+              rotation: 45 - hudCard.spin * hudCard.spinFrom * 0.75
+            }
+            Rectangle { anchors.centerIn: parent; width: 3; height: 3; color: root.bright }
           }
         }
-      }
 
-      Text {
-        width: parent.width - 44
-        text: hudCard.title
-        textFormat: Text.PlainText
-        color: hudCard.ink
-        wrapMode: Text.Wrap
-        maximumLineCount: 3
-        elide: Text.ElideRight
-        font.family: Style.fontFamily
-        font.pixelSize: 15
-        font.bold: true
-        font.capitalization: Font.AllUppercase
-      }
+        // Worn tape: dark lines across everything, text included.
+        Image {
+          anchors.fill: parent
+          fillMode: Image.Tile
+          verticalAlignment: Image.AlignTop
+          horizontalAlignment: Image.AlignLeft
+          source: "data:image/svg+xml," + encodeURIComponent(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='3' height='3'><rect width='3' height='1' fill='"
+            + root.hudBlack + "' fill-opacity='0.6'/></svg>")
+        }
 
-      Repeater {
-        model: hudCard.rows
-        delegate: Row {
-          required property var modelData
-          spacing: 8
-          HudLabel { width: 44; text: modelData.k; color: root.dim }
-          HudLabel { text: modelData.v; color: root.bright; font.bold: false }
+        // The scan line and its trail.
+        Rectangle {
+          visible: hudCard.t > 0.35 && hudCard.t < 0.74
+          y: hudPainted.height - height
+          width: parent.width
+          height: 34
+          gradient: Gradient {
+            GradientStop { position: 0; color: Qt.alpha(root.hud, 0) }
+            GradientStop { position: 1; color: Qt.alpha(root.hud, 0.4) }
+          }
+          Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2; color: root.bright }
+        }
+
+        // The flash of the lock.
+        Rectangle {
+          anchors.fill: parent
+          color: root.bright
+          opacity: hudCard.t >= 0.75 ? (1 - hudCard.seg(0.75, 1)) * 0.3 : 0
         }
       }
-
-      Column {
-        id: hudExtra
-        width: parent.width
-        spacing: 6
-      }
     }
 
-    // The reticle.
-    Item {
-      x: hudCard.width - 14 - width
-      y: 40
-      width: 34
-      height: 34
-
-      Rectangle { anchors.fill: parent; anchors.margins: 5; radius: width / 2; color: "transparent"; border.width: 1; border.color: hudCard.ink }
-      Rectangle { x: parent.width / 2; width: 1; height: 9; color: hudCard.ink }
-      Rectangle { x: parent.width / 2; y: parent.height - 9; width: 1; height: 9; color: hudCard.ink }
-      Rectangle { y: parent.height / 2; width: 9; height: 1; color: hudCard.ink }
-      Rectangle { x: parent.width - 9; y: parent.height / 2; width: 9; height: 1; color: hudCard.ink }
-      Rectangle { anchors.centerIn: parent; width: 3; height: 3; color: hudCard.ink }
+    // The bright front edge of the wipe.
+    Rectangle {
+      visible: hudCard.t > 0.1 && hudCard.t < 0.42
+      x: hudCard.width - hudWipe.width - 1
+      width: 2
+      height: parent.height
+      color: root.bright
     }
 
-    // Worn tape: dark lines across everything, text included.
-    Image {
-      anchors.fill: parent
-      fillMode: Image.Tile
-      verticalAlignment: Image.AlignTop
-      horizontalAlignment: Image.AlignLeft
-      source: "data:image/svg+xml," + encodeURIComponent(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='3' height='3'><rect width='3' height='1' fill='"
-        + root.hudBlack + "' fill-opacity='0.6'/></svg>")
-    }
-
-    HudBracket { x: -4; y: -4 }
-    HudBracket { x: hudCard.width - width + 4; y: -4; onRight: true }
-    HudBracket { x: -4; y: hudCard.height - height + 4; onBottom: true }
-    HudBracket { x: hudCard.width - width + 4; y: hudCard.height - height + 4; onRight: true; onBottom: true }
+    HudBracket { x: -4 - hudCard.spread; y: -4 - hudCard.spread; opacity: hudCard.bracketOpacity }
+    HudBracket { x: hudCard.width - width + 4 + hudCard.spread; y: -4 - hudCard.spread; onRight: true; opacity: hudCard.bracketOpacity }
+    HudBracket { x: -4 - hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onBottom: true; opacity: hudCard.bracketOpacity }
+    HudBracket { x: hudCard.width - width + 4 + hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onRight: true; onBottom: true; opacity: hudCard.bracketOpacity }
   }
 
   component HudLabel: Text {
@@ -1831,6 +1953,34 @@ Item {
     height: 14
     Rectangle { y: parent.onBottom ? parent.height - 2 : 0; width: parent.width; height: 2; color: root.bright }
     Rectangle { x: parent.onRight ? parent.width - 2 : 0; width: 2; height: parent.height; color: root.bright }
+  }
+
+  // One limit on Claude's card, in the colour of its gauge.
+  component GaugeColumn: Column {
+    property var gauge: ({ known: false })
+    property string name: ""
+    readonly property color ink: root.gaugeInk(gauge)
+    width: (272 - 16) / 2
+    spacing: 4
+
+    HudLabel { text: parent.name; color: parent.ink }
+    Text {
+      text: parent.gauge.known ? Math.round(parent.gauge.used * 100) + " % → " + Math.round(parent.gauge.forecast * 100) + " %" : "—"
+      textFormat: Text.PlainText
+      color: parent.ink
+      font.family: Style.fontFamily
+      font.pixelSize: 15
+      font.bold: true
+    }
+    Repeater {
+      model: root.gaugeRows(parent.gauge)
+      delegate: Row {
+        required property var modelData
+        spacing: 6
+        HudLabel { width: 40; text: modelData.k; color: root.dim }
+        HudLabel { text: modelData.v; color: root.bright; font.bold: false }
+      }
+    }
   }
 
   // A section of a card: a heading and something on its right.
@@ -1916,9 +2066,10 @@ Item {
   // A gauge's card, beside the open bar, while the pointer is on that gauge.
   component ZoneTag: HudCard {
     property string zone: ""
+    property bool hasContent: title !== ""
     property real zoneY: 0
     property real zoneHeight: 0
-    visible: root.deploy > 0 && root.hoveredZone === zone && title !== ""
+    visible: root.deploy > 0 && root.hoveredZone === zone && hasContent
     x: root.stripWidth - root.backingWidth - width - 7
     // Stays on the screen, whatever the card's height.
     y: Math.max(6 - zoneY, Math.min(strip.height - zoneY - height - 6, (zoneHeight - height) / 2))
