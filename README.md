@@ -34,8 +34,8 @@ click opens the Power panel or My Agents.
   blinking under 10 %. Charging, an orange stripe to full, then a green one for
   how long that charge would last. Plugged in and full, the green runtime from
   now. Runtimes use the median discharge rate of the last week.
-- **Limits**, each filling from its bottom up, the week below and its Fable share
-  above: the share used, solid, then the forecast at the reset, pale, and a line
+- **Limits**: the week below, filling from its bottom up, and its Fable share
+  above, filling from its top down. Each shows the share used, solid, then the forecast at the reset, pale, and a line
   for how much of the window has gone by. Green up to a 70 % forecast, then on
   to red at 100 %. A gauge turning red blinks. They read what
   My Agents writes in

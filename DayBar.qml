@@ -1475,8 +1475,8 @@ Item {
         color: root.hud
       }
 
-      // Claude's limits, at the bottom: the week below, Fable above it, each
-      // filling from its bottom up.
+      // Claude's limits, at the bottom: the week below, filling from its
+      // bottom up, and Fable above it, filling from its top down.
       Item {
         id: aiZone
         readonly property real gaugeHeight: (height - root.deskGap) / 2
@@ -1495,6 +1495,7 @@ Item {
             readonly property color ink: g.known ? Qt.hsla(Model.gaugeHue(g), 0.75, 0.5, 1) : root.dim
             readonly property real used: g.known ? Math.min(1, g.used) * height : 0
             readonly property real forecast: g.known ? Math.max(0, Math.min(1, g.forecast) - Math.min(1, g.used)) * height : 0
+            readonly property bool fromTop: index === 1
 
             y: index === 0 ? aiZone.height - height : 0
             width: root.stripWidth
@@ -1505,14 +1506,14 @@ Item {
             // The forecast, pale, from the share used on.
             Rectangle {
               x: root.stripWidth - 1 - root.cellWidth
-              y: gauge.height - gauge.used - gauge.forecast
+              y: gauge.fromTop ? gauge.used : gauge.height - gauge.used - gauge.forecast
               width: root.cellWidth
               height: gauge.forecast
               color: Qt.alpha(gauge.ink, 0.35)
             }
             Rectangle {
               x: root.stripWidth - 1 - root.cellWidth
-              y: gauge.height - gauge.used
+              y: gauge.fromTop ? 0 : gauge.height - gauge.used
               width: root.cellWidth
               height: gauge.used
               color: Qt.alpha(gauge.ink, 0.85)
@@ -1521,7 +1522,7 @@ Item {
             Rectangle {
               visible: gauge.g.known && gauge.g.elapsed >= 0
               x: root.stripWidth - 1 - root.cellWidth
-              y: gauge.height - gauge.height * (gauge.g.elapsed || 0) - 1
+              y: (gauge.fromTop ? gauge.height * (gauge.g.elapsed || 0) : gauge.height - gauge.height * (gauge.g.elapsed || 0)) - 1
               width: root.cellWidth
               height: 2
               color: Color.foreground
