@@ -62,6 +62,7 @@ Item {
   // The desks stop short of the ends, or the top outline would line up
   // with the windows' border and prolong it to the corner of the screen.
   readonly property int railInset: 4
+  readonly property int deskGap: 6
   readonly property int railX: stripWidth - railWidth
   // The strip keeps its width for the warning tag and the numbers, but only
   // what the icons need deploys: edge, icon, rail.
@@ -818,7 +819,7 @@ Item {
     if (currentWorkspace > 0) desk(currentWorkspace)
     var list = Object.keys(byId).map(function(k) { return byId[k] }).sort(Model.deskOrder)
     list.forEach(function(d) { d.windows.sort(Model.windowOrder) })
-    return Model.deskLayout(list, strip.height - 2 * railInset, { gap: 3, cellGap: 1, minCell: 24, maxCells: 12 })
+    return Model.deskLayout(list, strip.height - 2 * railInset, { gap: deskGap, cellGap: 1, minCell: 24, maxCells: 12 })
   }
 
   // Reassigned only when what the rail draws changed: the windows are
@@ -986,6 +987,17 @@ Item {
           }
           onInfoChanged: syncCells()
           Component.onCompleted: syncCells()
+
+          // The tick between this desk and the one above, in the gap, across
+          // the rail or the deployed strip.
+          Rectangle {
+            visible: desk.index > 0
+            x: root.stripWidth - root.backingWidth
+            y: -(root.deskGap + height) / 2
+            width: root.backingWidth
+            height: 2
+            color: root.hud
+          }
 
           // Held Super: the numbers beside the bar, open or closed.
           Rectangle {
