@@ -58,7 +58,7 @@ Item {
   // At rest only the rail shows, as wide as the gap beside the windows; the
   // numbers and icons slide out to stripWidth while the pointer is on it.
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
-  readonly property int stripWidth: 60
+  readonly property int stripWidth: 84
   // The desks stop short of the ends, or the top outline would line up
   // with the windows' border and prolong it to the corner of the screen.
   readonly property int railInset: 4
@@ -641,7 +641,7 @@ Item {
   Timer {
     id: workTimer
     interval: 50
-    running: (root.anyWorking || root.anyWaiting) && root.animate && win.visible
+    running: (root.anyWorking || root.anyWaiting || (root.anyDone && root.deploy > 0)) && root.animate && win.visible
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
   }
@@ -1063,6 +1063,7 @@ Item {
               readonly property bool waiting: agentState === "waiting"
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
+              readonly property string tagWord: waiting ? "WAIT" : working ? "WORK" : done ? "DONE" : ""
               readonly property bool workPhase: desk.index % 2 === 0 ? root.workOn : root.workOnOdd
               // Where the white bar is on the clock, drawn anew at each start.
               property real barPhase: Math.random() * 2
@@ -1130,7 +1131,7 @@ Item {
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
               Rectangle {
-                visible: cell.warning
+                visible: cell.warning || (root.deploy > 0 && cell.tagWord !== "")
                 x: Math.max(0, block.x - width - 3)
                 y: Math.max(0, cell.height - height) * Model.sweep(root.workClock)
                 width: tagText.implicitWidth + 8
@@ -1138,14 +1139,14 @@ Item {
                 radius: 2
                 color: root.hudBlack
                 border.width: 1
-                border.color: root.alarm
+                border.color: cell.waiting ? root.alarm : root.hud
 
                 Text {
                   id: tagText
                   anchors.centerIn: parent
-                  text: (desk.info ? desk.info.label : "") + " WAIT"
+                  text: (desk.info ? desk.info.label : "") + " " + cell.tagWord
                   textFormat: Text.PlainText
-                  color: root.fastOn ? root.nowColor : root.alarm
+                  color: cell.waiting ? (root.fastOn ? root.nowColor : root.alarm) : root.bright
                   font.family: Style.fontFamily
                   font.pixelSize: 9
                   font.bold: true
