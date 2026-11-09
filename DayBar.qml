@@ -83,7 +83,7 @@ Item {
   // The windows' cells grow with it, inside its edge, the icons in them.
   readonly property real cellWidth: backingWidth - 1 - 3 * openness
   readonly property real iconCenterX: stripWidth - 1 - cellWidth / 2 - 11
-  readonly property int edgeGap: Style.gapsOut * 2 + 2
+  readonly property int edgeGap: (cfg.verticalGap >= 0 ? cfg.verticalGap : Style.gapsOut * 2) + 2
   readonly property string barPosition: shell && shell.barConfig ? String(shell.barConfig.position || "top") : "top"
   function barSizeOn(name) { return shell && shell.bar && !shell.bar.barHidden ? shell.bar.barSizeFor(name) : 0 }
   readonly property int barSize: barSizeOn(targetScreen ? targetScreen.name : "")
@@ -1273,7 +1273,7 @@ Item {
       // reserved zones put them, so the strip's edge meets those borders.
       // One pixel more at the top: at a fractional scale, a row of the
       // border would otherwise show above the strip.
-      top: root.reserved[1] + root.edgeGap - 3
+      top: Math.max(0, root.reserved[1] + root.edgeGap - 3)
       bottom: root.reserved[3] + root.edgeGap - 2
       right: root.barPosition === "right" ? root.barSize : 0
     }

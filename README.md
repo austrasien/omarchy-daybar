@@ -89,6 +89,7 @@ After editing the QML, run `omarchy-restart-shell`: the panel is keepLoaded.
 | `visible` | Show the bar. |
 | `monitor` | Screen to stay on. Absent: the focused one. |
 | `railWidth` | Width at rest, in pixels. Absent: the gap beside windows. |
+| `verticalGap` | Gap above and below the windows, if a workspace rule makes it differ from `gaps_out`. |
 | `autoCompact` | Renumber the desks 1..n whenever a gap appears. |
 | `leds` | Drive the alert LEDs and the agents-live file. |
 | `iconOverrides` | `{ "<window class>": "<icon name or path>" }`. |

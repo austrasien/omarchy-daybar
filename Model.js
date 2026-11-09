@@ -13,6 +13,8 @@ function normalizeConfig(raw) {
     monitor: c.monitor ? String(c.monitor) : "",
     // 0 = automatic: the gap beside the windows.
     railWidth: isNaN(rail) ? 0 : clamp(rail, 4, 40),
+    // -1 = automatic: the gap Hyprland leaves at the top and bottom.
+    verticalGap: isNaN(parseInt(c.verticalGap, 10)) ? -1 : Math.max(0, parseInt(c.verticalGap, 10)),
     // Off while austraz.minimap still runs: only one plugin may renumber
     // the desks and drive the LEDs.
     autoCompact: c.autoCompact === true,
