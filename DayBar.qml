@@ -822,7 +822,7 @@ Item {
     if (currentWorkspace > 0) desk(currentWorkspace)
     var list = Object.keys(byId).map(function(k) { return byId[k] }).sort(Model.deskOrder)
     list.forEach(function(d) { d.windows.sort(Model.windowOrder) })
-    return Model.deskLayout(list, strip.height - 2 * railInset, { gap: deskGap, cellGap: 1, minCell: 24, maxCells: 12 })
+    return Model.deskLayout(list, strip.height - 2 * railInset, { gap: deskGap, cellGap: 2, minCell: 24, maxCells: 12 })
   }
 
   // Reassigned only when what the rail draws changed: the windows are
@@ -1089,9 +1089,9 @@ Item {
                 clip: true
                 color: cell.waiting ? (root.fastOn ? root.alarm : Qt.darker(root.alarm, 2.2))
                   : cell.done ? (root.slowOn ? root.hud : root.dim)
-                  : cell.hovered ? root.bright
+                  : cell.hovered ? root.dim
                   : cell.working ? (cell.workPhase ? root.dim : desk.current ? root.hud : "transparent")
-                  : desk.current ? root.hud
+                  : desk.current ? root.dim
                   : "transparent"
                 // The other desks are outlines, darkening as they age but
                 // never down to the background, or they would vanish.

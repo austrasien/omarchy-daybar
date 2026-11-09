@@ -6,8 +6,8 @@ the time, this one the space.
 
 - **At rest** only a thin rail shows, as wide as the gap beside your windows.
   It is cut in equal parts between the open desks, each desk in equal parts
-  between its windows. The whole current desk is in the theme accent, the
-  others are outlines.
+  between its windows. The whole current desk is in a dim shade of the theme
+  accent, the others are outlines.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
   windows show their current tab's favicon.
 - **Hold Super** to see the desk numbers, with the bar open or closed.
