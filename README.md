@@ -11,7 +11,8 @@ the time, this one the space.
 - **Hover** and the window icons deploy in a wave from the pointer. Browser
   windows show their current tab's favicon.
 - When an agent finishes or gets blocked on another desk or in the scratchpad,
-  a tag sweeps its window for five minutes, or until you open that desk: the
+  a tag sweeps its window for five seconds, then holds still in its middle, for
+  five minutes in all or until you open that desk: the
   window's title for Claude Code, Claude Code Local and Forge, in green when
   finished and red when blocked; the desk and `DONE` or `WAIT` for the others.
 - **Hold Super** to see the desk numbers, with the bar open or closed.

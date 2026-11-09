@@ -651,6 +651,13 @@ Item {
     return ""
   }
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
+  // A tag sweeps its window for its first seconds, then holds still to be read.
+  readonly property int tagSweepMs: 5000
+  function tagMoves(address) {
+    var t = tags[address]
+    return !!t && t.state !== "working" && t.until > 0 && tagNow < t.until - tagMs + tagSweepMs
+  }
+  readonly property bool anyTagMoving: Object.keys(tags).some(function(a) { return root.tagMoves(a) })
   function syncTags() {
     if (!tagsReady || !tagsFile.loaded) return
     var next = Model.updateTags(tags, states, Model.currentAddresses(layout), Date.now(), tagMs)
@@ -662,7 +669,7 @@ Item {
   onStatesChanged: Qt.callLater(syncTags)
   onLayoutChanged: Qt.callLater(syncTags)
   Timer {
-    interval: 5000
+    interval: root.anyTagMoving ? 500 : 5000
     running: root.anyTagLive
     repeat: true
     onTriggered: root.tagNow = Date.now()
@@ -689,7 +696,7 @@ Item {
   Timer {
     id: workTimer
     interval: 50
-    running: (root.anyWorking || root.anyWaiting || root.anyTagLive) && root.animate && win.visible
+    running: (root.anyWorking || root.anyWaiting || root.anyTagMoving) && root.animate && win.visible
     repeat: true
     onTriggered: root.workClock = (Date.now() % 2400) / 1200
   }
@@ -1112,6 +1119,8 @@ Item {
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
               readonly property string tagWord: waiting ? "WAIT" : done ? "DONE" : ""
+              readonly property bool tagMoving: !!info
+                && (more ? info.hidden.some(function(a) { return root.tagMoves(a) }) : root.tagMoves(info.address))
               readonly property string tagTitle: tagLive && tagWord !== "" && !more && Model.isClaudeWindow(info.appId)
                 ? Model.cleanTitle(root.titleOf(info.address)) : ""
               readonly property bool tagLive: !desk.current && !!info
@@ -1185,7 +1194,7 @@ Item {
               Rectangle {
                 visible: cell.tagLive && cell.tagWord !== ""
                 x: Math.max(0, block.x - width - 3)
-                y: Math.max(0, cell.height - height) * Model.sweep(root.workClock)
+                y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 width: tagText.width + 8
                 height: Math.max(15, tagText.height + 4)
                 radius: 2
