@@ -191,15 +191,14 @@ Item {
     || (batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10)
   // Green to yellow, orange and red with the level on battery, green otherwise.
   readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
-  readonly property string batteryText: {
-    if (batteryPercent < 0) return ""
-    var parts = [batteryPercent + " %"]
-    if (batteryMode === "discharging" && batterySeconds > 0) parts.push(Model.durationText(batterySeconds))
-    if (batteryMode === "charging" && batterySeconds > 0) parts.push("plein " + Model.durationText(batterySeconds))
-    if (batteryMode === "estimate" && batteryAfterSeconds > 0) parts.push(Model.durationText(batteryAfterSeconds))
+  readonly property var batteryRows: {
+    var rows = []
+    if (batteryMode === "discharging" && batterySeconds > 0) rows.push({ k: "LEFT", v: Model.durationText(batterySeconds) })
+    if (batteryMode === "charging" && batterySeconds > 0) rows.push({ k: "FULL", v: "in " + Model.durationText(batterySeconds) })
+    if (batteryMode === "estimate" && batteryAfterSeconds > 0) rows.push({ k: "LASTS", v: Model.durationText(batteryAfterSeconds) })
     var watts = battery ? Math.abs(Number(battery.changeRate || 0)) : 0
-    if (watts > 0.5) parts.push(Math.round(watts) + " W")
-    return parts.join(" · ")
+    if (watts > 0.5) rows.push({ k: "RATE", v: Math.round(watts) + " W" })
+    return rows
   }
   Process {
     id: rateProc
@@ -262,11 +261,12 @@ Item {
     var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
     return d.toDateString() === now.toDateString() ? hm : weekDays[d.getDay()] + " " + hm
   }
-  function gaugeText(g) {
-    if (!g || !g.known) return ""
-    var head = g.label + " " + Math.round(g.used * 100) + " % → "
-      + (g.risk === "full" && g.cap > 0 ? "plein " + clockText(g.cap) : Math.round(g.forecast * 100) + " %")
-    return g.reset > 0 ? head + "\nreset " + clockText(g.reset) : head
+  function gaugeRows(g) {
+    if (!g || !g.known) return []
+    var rows = []
+    if (g.risk === "full" && g.cap > 0) rows.push({ k: "FULL", v: clockText(g.cap) })
+    if (g.reset > 0) rows.push({ k: "RESET", v: clockText(g.reset) })
+    return rows
   }
 
   // A gauge turning red blinks, once per window. Those already red when the
@@ -1351,34 +1351,16 @@ Item {
                 border.width: 1
                 border.color: root.fastOn ? root.alarm : root.nowColor
               }
-              Rectangle {
+              HudCard {
                 visible: cell.tagLive && cell.tagWord !== ""
                 // Left of the desk's number when it shows, never over it.
                 x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7)
                 y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
-                width: tagText.width + 16
-                height: Math.max(26, tagText.height + 12)
-                color: root.hudBlack
-                border.width: 1
-                border.color: root.dim
-
-                HudFrame { ink: cell.waiting ? root.alarm : root.hud }
-
-                Text {
-                  id: tagText
-                  font.capitalization: Font.AllUppercase
-                  anchors.centerIn: parent
-                  width: Math.min(implicitWidth, 280)
-                  wrapMode: Text.Wrap
-                  maximumLineCount: 3
-                  elide: Text.ElideRight
-                  text: cell.tagTitle !== "" ? cell.tagTitle : (desk.info ? desk.info.label : "") + " " + cell.tagWord
-                  textFormat: Text.PlainText
-                  color: cell.waiting ? (cell.tagTitle !== "" || root.fastOn ? root.alarm : root.nowColor) : root.hud
-                  font.family: Style.fontFamily
-                  font.pixelSize: 13
-                  font.bold: true
-                }
+                z: 3
+                ink: cell.waiting ? root.alarm : root.hud
+                head: "DESK " + (desk.info ? desk.info.label : "")
+                status: cell.tagWord
+                title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord
               }
 
               Image {
@@ -1478,8 +1460,11 @@ Item {
           }
         }
         ZoneTag {
-          text: root.batteryText
-          ink: root.bright
+          head: "BATTERY"
+          status: root.batteryMode === "charging" ? "CHARGING" : root.batteryMode === "discharging" ? "ON BATTERY" : "PLUGGED"
+          title: root.batteryPercent >= 0 ? root.batteryPercent + " %" : ""
+          rows: root.batteryRows
+          ink: root.batteryColor
           zoneY: batteryZone.y
           zoneHeight: batteryZone.height
         }
@@ -1555,7 +1540,10 @@ Item {
               color: Color.foreground
             }
             ZoneTag {
-              text: root.gaugeText(gauge.g)
+              head: gauge.index === 0 ? "WEEKLY" : "FABLE"
+              status: gauge.g.known ? (gauge.g.risk === "full" ? "OVER LIMIT" : "ON TRACK") : ""
+              title: gauge.g.known ? Math.round(gauge.g.used * 100) + " % → " + Math.round(gauge.g.forecast * 100) + " %" : ""
+              rows: root.gaugeRows(gauge.g)
               ink: gauge.ink
               zoneY: aiZone.y + gauge.y
               zoneHeight: gauge.height
@@ -1595,10 +1583,21 @@ Item {
     color: Qt.alpha(Color.foreground, 0.1)
   }
 
-  // The look of the day tape's data card: scan lines and target brackets.
-  component HudFrame: Item {
+  // A small version of the day tape's data card: a header with a status, a
+  // scale, a large title, rows of readings, a reticle, scan lines and target
+  // brackets.
+  component HudCard: Rectangle {
+    id: hudCard
     property color ink: root.hud
-    anchors.fill: parent
+    property string head: ""
+    property string status: ""
+    property string title: ""
+    property var rows: []
+    width: 288
+    height: hudBody.implicitHeight + 28
+    color: root.hudBlack
+    border.width: 1
+    border.color: root.dim
 
     Image {
       anchors.fill: parent
@@ -1609,50 +1608,121 @@ Item {
         "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='1' fill='"
         + root.hud + "' fill-opacity='0.07'/></svg>")
     }
-    HudCorner { x: -3; y: -3; ink: parent.ink }
-    HudCorner { x: parent.width - width + 3; y: -3; onRight: true; ink: parent.ink }
-    HudCorner { x: -3; y: parent.height - height + 3; onBottom: true; ink: parent.ink }
-    HudCorner { x: parent.width - width + 3; y: parent.height - height + 3; onRight: true; onBottom: true; ink: parent.ink }
+
+    Column {
+      id: hudBody
+      x: 14
+      y: 14
+      width: hudCard.width - 28
+      spacing: 6
+
+      Item {
+        width: parent.width
+        height: hudHead.implicitHeight
+        HudLabel { id: hudHead; text: "◆ " + hudCard.head; color: root.hud }
+        HudLabel { anchors.right: parent.right; text: hudCard.status; color: hudCard.ink }
+      }
+
+      Item {
+        id: hudScale
+        width: parent.width
+        height: 5
+        Rectangle { width: parent.width; height: 1; color: root.dim }
+        Repeater {
+          model: 25
+          delegate: Rectangle {
+            required property int index
+            x: index * (hudScale.width - 1) / 24
+            y: 1
+            width: 1
+            height: index % 4 === 0 ? 4 : 2
+            color: root.dim
+          }
+        }
+      }
+
+      Text {
+        width: parent.width - 44
+        text: hudCard.title
+        textFormat: Text.PlainText
+        color: hudCard.ink
+        wrapMode: Text.Wrap
+        maximumLineCount: 3
+        elide: Text.ElideRight
+        font.family: Style.fontFamily
+        font.pixelSize: 15
+        font.bold: true
+        font.capitalization: Font.AllUppercase
+      }
+
+      Repeater {
+        model: hudCard.rows
+        delegate: Row {
+          required property var modelData
+          spacing: 8
+          HudLabel { width: 44; text: modelData.k; color: root.dim }
+          HudLabel { text: modelData.v; color: root.bright; font.bold: false }
+        }
+      }
+    }
+
+    // The reticle.
+    Item {
+      x: hudCard.width - 14 - width
+      y: 40
+      width: 34
+      height: 34
+
+      Rectangle { anchors.fill: parent; anchors.margins: 5; radius: width / 2; color: "transparent"; border.width: 1; border.color: hudCard.ink }
+      Rectangle { x: parent.width / 2; width: 1; height: 9; color: hudCard.ink }
+      Rectangle { x: parent.width / 2; y: parent.height - 9; width: 1; height: 9; color: hudCard.ink }
+      Rectangle { y: parent.height / 2; width: 9; height: 1; color: hudCard.ink }
+      Rectangle { x: parent.width - 9; y: parent.height / 2; width: 9; height: 1; color: hudCard.ink }
+      Rectangle { anchors.centerIn: parent; width: 3; height: 3; color: hudCard.ink }
+    }
+
+    // Worn tape: dark lines across everything, text included.
+    Image {
+      anchors.fill: parent
+      fillMode: Image.Tile
+      verticalAlignment: Image.AlignTop
+      horizontalAlignment: Image.AlignLeft
+      source: "data:image/svg+xml," + encodeURIComponent(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='3' height='3'><rect width='3' height='1' fill='"
+        + root.hudBlack + "' fill-opacity='0.6'/></svg>")
+    }
+
+    HudBracket { x: -4; y: -4 }
+    HudBracket { x: hudCard.width - width + 4; y: -4; onRight: true }
+    HudBracket { x: -4; y: hudCard.height - height + 4; onBottom: true }
+    HudBracket { x: hudCard.width - width + 4; y: hudCard.height - height + 4; onRight: true; onBottom: true }
   }
 
-  component HudCorner: Item {
-    property color ink: root.hud
+  component HudLabel: Text {
+    textFormat: Text.PlainText
+    font.family: Style.fontFamily
+    font.pixelSize: 12
+    font.bold: true
+  }
+
+  component HudBracket: Item {
     property bool onRight: false
     property bool onBottom: false
-    width: 8
-    height: 8
-    Rectangle { x: parent.onRight ? 7 : 0; width: 1; height: 8; color: parent.ink }
-    Rectangle { y: parent.onBottom ? 7 : 0; width: 8; height: 1; color: parent.ink }
+    width: 14
+    height: 14
+    Rectangle { y: parent.onBottom ? parent.height - 2 : 0; width: parent.width; height: 2; color: root.bright }
+    Rectangle { x: parent.onRight ? parent.width - 2 : 0; width: 2; height: parent.height; color: root.bright }
   }
 
-  // A gauge's values, beside the open bar.
-  component ZoneTag: Rectangle {
-    property string text: ""
-    property color ink: root.bright
+  // A gauge's card, beside the open bar.
+  component ZoneTag: HudCard {
     property real zoneY: 0
     property real zoneHeight: 0
-    visible: root.deploy > 0 && text !== ""
+    visible: root.deploy > 0 && title !== ""
     opacity: root.wave(zoneY + zoneHeight / 2)
     x: root.stripWidth - root.backingWidth - width - 7
     y: (zoneHeight - height) / 2
-    width: zoneText.implicitWidth + 16
-    height: zoneText.implicitHeight + 12
-    color: root.hudBlack
-    border.width: 1
-    border.color: root.dim
-
-    HudFrame { ink: parent.ink }
-
-    Text {
-      id: zoneText
-      anchors.centerIn: parent
-      text: parent.text
-      textFormat: Text.PlainText
-      color: parent.ink
-      font.family: Style.fontFamily
-      font.pixelSize: 13
-      font.bold: true
-    }
+    z: 3
   }
 
   // A click on a gauge opens its panel.
