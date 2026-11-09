@@ -341,6 +341,9 @@ Item {
   readonly property bool gameHere: allWindows.some(function(w) {
     return w.workspace === root.currentWorkspace && Model.hidesBar(w, root.cfg.hideFullscreen)
   })
+  readonly property bool fullscreenHere: allWindows.some(function(w) {
+    return w.workspace === root.currentWorkspace && w.fullscreen >= 2
+  })
   readonly property bool screensaverUp: allWindows.some(function(w) { return w.appId === "org.omarchy.screensaver" })
 
   // When each desk was last left, kept across shell restarts.
@@ -1127,8 +1130,9 @@ Item {
     }
 
     WlrLayershell.namespace: "austraz-daybar"
-    // Stays on top of fullscreen windows, as the minimap did.
-    WlrLayershell.layer: WlrLayer.Overlay
+    // Above the bar, but behind a fullscreen window, as the day tape: only
+    // a blocked agent shows over one, not to be missed.
+    WlrLayershell.layer: root.fullscreenHere && !root.anyWaiting ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
     exclusiveZone: 0
