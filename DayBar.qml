@@ -61,7 +61,7 @@ Item {
   readonly property int railWidth: cfg.railWidth || Math.max(8, Style.gapsOut * 2)
   // Wider only while tags show: their titles need the room, and the surface
   // is redrawn whole.
-  readonly property int stripWidth: anyTagLive || deploy > 0 ? 340 : 84
+  readonly property int stripWidth: anyTagLive || deploy > 0 ? 360 : 84
   // The gauges start level with the top of the windows' top border and end
   // level with the bottom of their bottom one: the corners line up.
   readonly property real railInset: 0.8
@@ -1341,7 +1341,8 @@ Item {
               }
               Rectangle {
                 visible: cell.tagLive && cell.tagWord !== ""
-                x: Math.max(0, block.x - width - 3)
+                // Left of the desk's number when it shows, never over it.
+                x: Math.max(0, Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 3)
                 y: Math.max(0, cell.height - height) * (cell.tagMoving ? Model.sweep(root.workClock) : 0.5)
                 width: tagText.width + 8
                 height: Math.max(20, tagText.height + 4)
