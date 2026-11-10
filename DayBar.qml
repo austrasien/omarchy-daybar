@@ -191,10 +191,10 @@ Item {
   readonly property real batteryEnergy: battery ? Number(battery.energy || 0) : 0
   readonly property real batteryCapacity: battery ? Number(battery.energyCapacity || 0) : 0
   readonly property real batteryAfterSeconds: batteryMode === "estimate" && dischargeWatts > 0 ? batteryEnergy / dischargeWatts * 3600 : 0
-  readonly property bool batteryBlinks: batteryMode === "charging"
-    || (batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10)
-  // Green to yellow, orange and red with the level on battery, green otherwise.
-  readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
+  readonly property bool batteryBlinks: batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent <= 10
+  // Red, orange, yellow and green with the level, on battery or charging; green
+  // when plugged in and not charging.
+  readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" || batteryMode === "charging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
   // What the battery's card shows, as in austraz.power; read only while the
   // pointer is on the battery.
   property string hoveredZone: ""

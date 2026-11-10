@@ -36,8 +36,9 @@ The power chart and that click need the austraz.power plugin, which writes
 chart.
 
 - **Battery**, filling from the top to the current level, ticks counting the
-  hours. Charging, a blinking green with the hours to full in the empty part.
-  On battery, from green to yellow, orange and red with the level, blinking at
+  hours. Its colour goes from red through orange and yellow to green with the level,
+  charging or not. Charging, with the hours to full in the empty part.
+  On battery, blinking at
   10 % or less, with the hours left in the filled part. Plugged in without
   charging, full and green, with the hours it would last if unplugged, from the
   median discharge rate of the last week.
