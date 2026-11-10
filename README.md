@@ -14,7 +14,8 @@ the time, this one the space.
   a card sweeps its window for a second and a half, then holds still in its middle, for
   five minutes in all or until you open that desk: the window's title for Claude
   Code, Claude Code Local and Forge, in green when finished and red when blocked;
-  the desk and `DONE` or `WAIT` for the others.
+  the desk and `DONE` or `WAIT` for the others. **Click** the card to open that
+  window on its desk; until then it covers what is under it.
 - **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.

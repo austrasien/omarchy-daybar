@@ -263,6 +263,17 @@ function strongestState(addresses, markers) {
   return best
 }
 
+// The window a `+n` cell's card stands for: among the hidden windows with a
+// live tag, the one in the strongest state, the first of them on a tie.
+function tagTarget(addresses, markers, tagged) {
+  var best = "", rank = 0
+  for (var i = 0; i < addresses.length; i++) {
+    var r = tagged(addresses[i]) ? STATE_RANK[markers[addresses[i]]] || 0 : 0
+    if (r > rank) { rank = r; best = addresses[i] }
+  }
+  return best
+}
+
 // Desktop-entry ids to try for a window class, most specific first, as
 // Spaces does: reverse-DNS ids often ship a file named after the last part.
 function appIdCandidates(appId) {
@@ -825,6 +836,7 @@ if (typeof module !== "undefined") {
     tagSweepEnd: tagSweepEnd,
     tagSweep: tagSweep,
     strongestState: strongestState,
+    tagTarget: tagTarget,
     appIdCandidates: appIdCandidates,
     webAppHint: webAppHint,
     scoreWebAppExec: scoreWebAppExec,

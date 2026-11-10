@@ -5,6 +5,15 @@ const Model = require("../Model.js")
 
 const win = (address, x = 0, y = 0) => ({ address, appId: "app", icon: "", at: [x, y] })
 
+test("tagTarget: the tagged hidden window in the strongest state", () => {
+  const states = { a: "done", b: "waiting", c: "done", d: "waiting" }
+  const tagged = (address) => address !== "b"
+  assert.equal(Model.tagTarget(["a", "b", "c", "d"], states, tagged), "d")
+  assert.equal(Model.tagTarget(["a", "c"], states, tagged), "a")
+  assert.equal(Model.tagTarget(["b"], states, tagged), "")
+  assert.equal(Model.tagTarget(["e"], states, () => true), "")
+})
+
 test("normalizeConfig: the shared duties stay off by default", () => {
   const c = Model.normalizeConfig({})
   assert.equal(c.visible, true)

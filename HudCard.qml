@@ -25,7 +25,9 @@ Item {
   readonly property real spread: (1 - seg(0.3, 0.6)) * 14
   readonly property real bracketOpacity: t < 0.3 ? 0 : (t > 0.62 && t < 0.66) || (t > 0.7 && t < 0.74) ? 0.15 : 1
   property bool shown: true
+  property bool clickable: false
   signal closed()
+  signal clicked()
   width: 300
   height: hudBody.implicitHeight + 28
 
@@ -256,4 +258,11 @@ Item {
   HudBracket { ink: bar.bright; x: hudCard.width - width + 4 + hudCard.spread; y: -4 - hudCard.spread; onRight: true; opacity: hudCard.bracketOpacity }
   HudBracket { ink: bar.bright; x: -4 - hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onBottom: true; opacity: hudCard.bracketOpacity }
   HudBracket { ink: bar.bright; x: hudCard.width - width + 4 + hudCard.spread; y: hudCard.height - height + 4 + hudCard.spread; onRight: true; onBottom: true; opacity: hudCard.bracketOpacity }
+
+  MouseArea {
+    visible: hudCard.clickable
+    anchors.fill: parent
+    cursorShape: Qt.PointingHandCursor
+    onClicked: hudCard.clicked()
+  }
 }

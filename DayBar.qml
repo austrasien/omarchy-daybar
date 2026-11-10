@@ -204,6 +204,13 @@ Item {
   onHoveredZoneChanged: if (hoveredZone !== "") cardZone = hoveredZone
   property bool cardJustClosed: false
   property int tagCardsHeld: 0
+  // The agents' cards on screen, the only part of their surface a click reaches.
+  property var clickableCards: []
+  function setCardClickable(card, clickable) {
+    var rest = clickableCards.filter(function(c) { return c !== card })
+    if (clickable) rest.push(card)
+    if (clickable || rest.length !== clickableCards.length) clickableCards = rest
+  }
   function finishCard(zone) {
     if (cardZone !== zone) return
     cardJustClosed = true
@@ -949,6 +956,11 @@ Item {
   function focusWindow(address) {
     Hyprland.dispatch('hl.dsp.focus({ window = "address:0x' + normalizeAddress(address) + '" })')
   }
+  // A card's click. The scratchpad has to show before its window takes the focus.
+  function openCard(target) {
+    if (target.desk < 0 || !target.address) focusWorkspace(target.desk)
+    if (target.address) focusWindow(target.address)
+  }
   // Sends a window to another desk without following it.
   function moveWindow(address, workspace) {
     var target = workspace < 0 ? '"special:scratchpad"' : String(workspace)
@@ -1232,9 +1244,9 @@ Item {
 
   // --------------------------------------------------------------- window
 
-  // The cards' own surface, beside the bar's. It takes no pointer, stays the
-  // same size, and exists only while there is a card: empty, it would still
-  // cost the compositor.
+  // The cards' own surface, beside the bar's. It takes the pointer only on the
+  // agents' cards, stays the same size, and exists only while there is a card:
+  // empty, it would still cost the compositor.
   PanelWindow {
     id: cardWin
     screen: root.targetScreen
@@ -1252,7 +1264,16 @@ Item {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
     exclusiveZone: 0
-    mask: Region {}
+    mask: Region { regions: cardRegions.instances }
+
+    Variants {
+      id: cardRegions
+      model: root.clickableCards
+      delegate: Region {
+        required property var modelData
+        item: modelData
+      }
+    }
 
     Item {
       id: cardLayer
@@ -1287,7 +1308,7 @@ Item {
     exclusiveZone: 0
 
     // At rest only the rail takes the pointer, with a warning's frame; its
-    // tag leaves it to the windows underneath.
+    // tag is on the cards' surface.
     mask: Region {
       item: root.deployed ? deployZone : rail
       Region { x: root.warningZone.x; y: root.warningZone.y; width: root.warningZone.width; height: root.warningZone.height }
@@ -1505,7 +1526,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1513,13 +1534,26 @@ Item {
                     word: cell.tagWord,
                     title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord,
                     alarm: cell.waiting,
-                    label: desk.info ? desk.info.label : ""
+                    label: desk.info ? desk.info.label : "",
+                    desk: desk.deskId,
+                    address: !cell.info ? ""
+                      : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagOn(a) })
+                      : cell.info.address
                   })
                 }
-                onWantedChanged: if (wanted) held = true
-                Component.onCompleted: if (wanted) held = true
+                onWantedChanged: {
+                  if (wanted) held = true
+                  root.setCardClickable(tagCard, wanted)
+                }
+                Component.onCompleted: if (wanted) {
+                  held = true
+                  root.setCardClickable(tagCard, true)
+                }
                 onHeldChanged: root.tagCardsHeld += held ? 1 : -1
-                Component.onDestruction: if (held) root.tagCardsHeld -= 1
+                Component.onDestruction: {
+                  if (held) root.tagCardsHeld -= 1
+                  root.setCardClickable(tagCard, false)
+                }
                 active: wanted || held
                 // Left of the desk's number when it shows, never over it.
                 x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
@@ -1527,6 +1561,8 @@ Item {
                 sourceComponent: HudCard {
                   bar: root
                   shown: tagCard.wanted
+                  clickable: tagCard.wanted
+                  onClicked: root.openCard(tagCard.said)
                   onClosed: tagCard.held = false
                   ink: tagCard.said.alarm ? root.alarm : root.hud
                   head: "DESK " + tagCard.said.label
