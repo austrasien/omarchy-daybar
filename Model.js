@@ -508,7 +508,7 @@ function batteryGauge(b, height) {
   var span = charging ? height - filled : filled
   var hour = b.seconds > 0 ? span * 3600 / b.seconds : 0
   var ticks = []
-  if (hour >= 4) for (var y = start + hour; y < start + span - 0.5; y += hour) ticks.push(Math.round(y))
+  if (hour >= 8) for (var y = start + hour; y < start + span - 0.5; y += hour) ticks.push(Math.round(y))
   return { filled: filled, ticks: ticks, onFilled: !charging }
 }
 

@@ -1372,13 +1372,11 @@ Item {
 
           // The tick between this desk and the one above, in the gap, across
           // the rail or the deployed strip.
-          Rectangle {
+          Tick {
             visible: desk.index > 0
             x: root.stripWidth - root.backingWidth
             y: -(root.deskGap + height) / 2
             width: root.backingWidth
-            height: 2
-            color: root.hud
           }
 
           // Held Super: the numbers beside the bar, opening with it.
@@ -1653,19 +1651,12 @@ Item {
         // One portion per hour, as on the day tape: a cut and a tick.
         Repeater {
           model: batteryZone.gauge.ticks
-          delegate: Rectangle {
+          delegate: Tick {
             required property var modelData
             x: root.stripWidth - root.cellWidth
-            y: modelData
+            y: modelData - height / 2
             width: root.cellWidth
-            height: 1
-            color: batteryZone.gauge.onFilled ? Color.background : Qt.alpha(Color.foreground, 0.3)
-
-            Rectangle {
-              width: 4
-              height: 1
-              color: Qt.tint(Color.background, Qt.alpha(Color.foreground, batteryZone.gauge.onFilled ? 0.4 : 0.9))
-            }
+            ink: Color.foreground
           }
         }
         Loader {
@@ -1688,19 +1679,15 @@ Item {
       }
 
       // The ticks around the desks.
-      Rectangle {
+      Tick {
         x: root.stripWidth - root.backingWidth
         y: root.deskTop - (root.deskGap + height) / 2
         width: root.backingWidth
-        height: 2
-        color: root.hud
       }
-      Rectangle {
+      Tick {
         x: root.stripWidth - root.backingWidth
         y: strip.height - root.deskTop + (root.deskGap - height) / 2
         width: root.backingWidth
-        height: 2
-        color: root.hud
       }
 
       // Claude's limits, at the bottom: the week below, filling from its
@@ -1749,13 +1736,13 @@ Item {
               WornTape {}
             }
             // How much of the window has gone by.
-            Rectangle {
+            Tick {
               visible: gauge.g.known && gauge.g.elapsed >= 0
               x: root.stripWidth - root.cellWidth
-              y: (gauge.fromTop ? gauge.height * (gauge.g.elapsed || 0) : gauge.height - gauge.height * (gauge.g.elapsed || 0)) - 1
+              y: Math.max(0, Math.min(gauge.height - height,
+                (gauge.fromTop ? gauge.height * (gauge.g.elapsed || 0) : gauge.height - gauge.height * (gauge.g.elapsed || 0)) - height / 2))
               width: root.cellWidth
-              height: 2
-              color: Color.foreground
+              ink: Color.foreground
             }
             ZoneClick { zone: "ai"; command: ["omarchy-shell", "omarchy.agents", "toggle"] }
           }
@@ -1780,12 +1767,10 @@ Item {
         }
 
         // The tick between the two limits.
-        Rectangle {
+        Tick {
           x: root.stripWidth - root.backingWidth
           y: aiZone.gaugeHeight + (root.deskGap - height) / 2
           width: root.backingWidth
-          height: 2
-          color: root.hud
         }
       }
 
@@ -1800,6 +1785,21 @@ Item {
         sourceSize: Qt.size(52, 52)
         source: root.dragIcon
       }
+    }
+  }
+
+  // A tick across the rail: a light core in a dark keyline, so it reads on
+  // the worn tape of any fill and apart from the green of the window border.
+  component Tick: Rectangle {
+    property color ink: root.bright
+    property int core: 2
+    height: core + 2
+    color: root.hudBlack
+    Rectangle {
+      y: 1
+      width: parent.width
+      height: parent.core
+      color: parent.ink
     }
   }
 
