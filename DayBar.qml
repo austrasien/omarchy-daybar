@@ -397,12 +397,18 @@ Item {
   // A notification from notify-card: a card by its app's window, when that
   // window is on another desk. A second one on the same window starts the
   // card again.
-  function applyNotify(id, app, icon, desktop, sender) {
+  function applyNotify(id, app, icon, desktop, sender, notif) {
+    var carded = noteNotify(id, app, icon, desktop, sender)
+    // The daemon keeps a carded notification off its ticker.
+    if (notif) Quickshell.execDetached(["omarchy-shell", "notifications", "carded", String(notif), carded ? "1" : "0"])
+  }
+
+  function noteNotify(id, app, icon, desktop, sender) {
     var windows = allWindows.map(function(w) { return { address: w.address, appId: w.appId, title: root.titleOf(w.address) } })
     var address = Model.notifyWindow(windows, app, icon, desktop, cfg.notifyWindows)
-    if (!address) return
+    if (!address) return false
     var win = allWindows.filter(function(w) { return w.address === address })[0]
-    if (win && (win.workspace === currentWorkspace || win.address === focusedAddress)) return
+    if (win && (win.workspace === currentWorkspace || win.address === focusedAddress)) return false
     if (messages[address]) {
       dropMessage(address)
       syncTags()
@@ -411,6 +417,7 @@ Item {
     for (var k in messages) next[k] = messages[k]
     next[address] = { id: String(id), sender: String(sender || app || "") }
     messages = next
+    return true
   }
 
   function dropMessage(address) {
@@ -2170,7 +2177,7 @@ Item {
     function summary(session: string, text: string): void { root.applySummary(session, text) }
     function summarizing(session: string): void { root.applySummarizing(session) }
     function ask(session: string, text: string): void { root.applyAsk(session, text) }
-    function notify(id: string, app: string, icon: string, desktop: string, sender: string): void { root.applyNotify(id, app, icon, desktop, sender) }
+    function notify(id: string, app: string, icon: string, desktop: string, sender: string, notif: string): void { root.applyNotify(id, app, icon, desktop, sender, notif) }
     function peek(on: string): void { root.peeking = on === "on" }
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }

@@ -126,7 +126,7 @@ a time.
 omarchy-shell austraz.daybar toggle       # show or hide
 omarchy-shell austraz.daybar focusAlert   # go to the desk being signalled
 omarchy-shell austraz.daybar showNumbers  # held Super (hideNumbers on release)
-omarchy-shell austraz.daybar notify <id> <app> <icon> <desktop-entry> <sender>  # a message card by the app's window; its text with `summary <id> <text>`
+omarchy-shell austraz.daybar notify <id> <app> <icon> <desktop-entry> <sender> [<daemon id>]  # a message card by the app's window; its text with `summary <id> <text>`; answers `omarchy-shell notifications carded <daemon id> 1|0`
 omarchy-shell austraz.daybar ask <session> <text>      # what a blocked agent asks to do, on its card
 omarchy-shell austraz.daybar summarizing <session>     # the card's reticle turns meanwhile
 omarchy-shell austraz.daybar summary <session> <text>  # a line under the card's title ("" ends the wait)
