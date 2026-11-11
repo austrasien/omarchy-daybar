@@ -30,6 +30,8 @@ Item {
   property bool faded: false
   // Seeking: the reticle keeps turning, as it does before a lock, until
   // what it waits for comes; then it spins down onto the target.
+  // Keys shown in the header, after its label: each one "SUPER + <key>".
+  property var keys: []
   property bool seeking: false
   property real seekTurn: 0
   NumberAnimation on seekTurn {
@@ -159,12 +161,16 @@ Item {
           Item {
             width: parent.width
             height: hudHead.implicitHeight
-            HudLabel {
-              id: hudHead
-              text: "◆ " + hudCard.head
-              color: bar.hud
-              style: hudCard.faded ? Text.Outline : Text.Normal
-              styleColor: bar.hudBlack
+            Row {
+              spacing: 8
+              HudLabel {
+                id: hudHead
+                anchors.verticalCenter: parent.verticalCenter
+                text: "◆ " + hudCard.head
+                color: bar.hud
+                style: hudCard.faded ? Text.Outline : Text.Normal
+                styleColor: bar.hudBlack
+              }
             }
             HudLabel {
               anchors.right: parent.right
@@ -176,6 +182,38 @@ Item {
             }
           }
 
+          // Under the header, the keys that open the desk: one Super, then
+          // the keys that go with it, Super + Caps / 5.
+          Row {
+            id: keysRow
+            visible: hudCard.keys.length > 0
+            spacing: 5
+            Repeater {
+              model: hudCard.keys.length ? ["SUPER", "+"].concat(hudCard.keys.reduce(function(out, k, i) {
+                return i ? out.concat(["/", k]) : [k]
+              }, [])) : []
+              delegate: Rectangle {
+                required property string modelData
+                readonly property bool sign: modelData === "+" || modelData === "/"
+                anchors.verticalCenter: parent.verticalCenter
+                width: sign ? keyLabel.implicitWidth + 2 : keyLabel.implicitWidth + 14
+                height: keyLabel.implicitHeight + 6
+                radius: 2
+                color: sign || hudCard.faded ? "transparent" : Qt.alpha(hudCard.ink, 0.08)
+                border.width: sign ? 0 : 1
+                border.color: hudCard.ink
+                HudLabel {
+                  id: keyLabel
+                  anchors.centerIn: parent
+                  text: modelData
+                  color: sign ? bar.dim : hudCard.ink
+                  font.pixelSize: 14
+                  style: hudCard.faded ? Text.Outline : Text.Normal
+                  styleColor: bar.hudBlack
+                }
+              }
+            }
+          }
           Item {
             id: hudScale
             width: parent.width
@@ -232,7 +270,8 @@ Item {
         Item {
           visible: hudCard.reticle
           x: hudCard.width - 14 - width
-          y: 40
+          // Level with the title, below the keys when they show.
+          y: 40 + (keysRow.visible ? keysRow.height + 6 : 0)
           width: 34
           height: 34
           scale: 1 + (1 - hudCard.seg(0.3, 0.75)) * 0.6
