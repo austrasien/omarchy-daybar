@@ -33,6 +33,16 @@ def tool_line(name, args, home=None):
         return short("WebFetch " + str(args.get("url") or ""))
     if name == "WebSearch":
         return short("WebSearch " + str(args.get("query") or ""))
+    # Claude Code's own questions to you: the question itself, and how many
+    # more come with it.
+    if name == "AskUserQuestion":
+        questions = [q for q in (args.get("questions") or []) if isinstance(q, dict)]
+        if questions:
+            more = len(questions) - 1
+            return short("? " + str(questions[0].get("question") or "") + (" (+%d)" % more if more else ""))
+        return "? Question"
+    if name == "ExitPlanMode":
+        return "Plan to approve"
     return short(re.sub(r"^mcp__", "", name).replace("__", " · "))
 
 
