@@ -20,7 +20,8 @@ function normalizeConfig(raw) {
     autoCompact: c.autoCompact === true,
     leds: c.leds === true,
     iconOverrides: c.iconOverrides && typeof c.iconOverrides === "object" ? c.iconOverrides : {},
-    hideFullscreen: Array.isArray(c.hideFullscreen) ? c.hideFullscreen.map(String) : []
+    hideFullscreen: Array.isArray(c.hideFullscreen) ? c.hideFullscreen.map(String) : [],
+    notifyWindows: c.notifyWindows && typeof c.notifyWindows === "object" ? c.notifyWindows : {}
   }
 }
 
@@ -89,7 +90,8 @@ function agentPinAddress(pids, windows, activeAddress) {
 }
 
 // Strongest marker wins when several agents share one window.
-var STATE_RANK = { waiting: 3, done: 2, working: 1 }
+// A notification's window ("message") ranks below any agent state.
+var STATE_RANK = { waiting: 3, done: 2, working: 1, message: 0.5 }
 
 // { session: {state, pids, address} } → { normalizedAddress: state }
 function agentWindowStates(agents, windows) {
@@ -201,11 +203,38 @@ function deskAt(layout, y) {
 
 // What each window shows: its agent's state, a Hyprland "urgent" window
 // reading as a waiting agent.
-function windowStates(markers, urgent) {
+function windowStates(markers, urgent, messages) {
   var out = {}
+  for (var m in messages || {}) out[m] = "message"
   for (var address in markers) out[address] = markers[address]
   for (var key in urgent) if (urgent[key]) out[key] = "waiting"
   return out
+}
+
+// The window a notification comes from: an `notifyWindows` rule first
+// ({ "<app, icon or desktop entry pattern>": "<window class pattern>" }),
+// else the window whose class or title holds most of the words of the
+// app's name, icon and desktop entry. "" when no window matches.
+var NOTIFY_STOPWORDS = { com: 1, org: 1, www: 1, desktop: 1, google: 1, brave: 1, default: 1, app: 1, application: 1, dialog: 1, information: 1 }
+function notifyWindow(windows, app, icon, desktop, rules) {
+  var id = [app, icon, desktop].map(function(v) { return String(v || "") }).join(" ")
+  for (var pattern in rules || {}) {
+    try {
+      if (!new RegExp(pattern, "i").test(id)) continue
+      var cls = new RegExp(rules[pattern], "i")
+      for (var r = 0; r < windows.length; r++) if (cls.test(windows[r].appId)) return windows[r].address
+    } catch (e) {}
+  }
+  var words = id.toLowerCase().split(/[^a-z0-9]+/).filter(function(w) { return w.length >= 4 && !NOTIFY_STOPWORDS[w] })
+  if (!words.length) return ""
+  var best = "", score = 0
+  for (var i = 0; i < windows.length; i++) {
+    var hay = (String(windows[i].appId || "") + " " + String(windows[i].title || "")).toLowerCase()
+    var n = 0
+    for (var k = 0; k < words.length; k++) if (hay.indexOf(words[k]) !== -1) n++
+    if (n > score) { score = n; best = windows[i].address }
+  }
+  return best
 }
 
 // Position of a warning tag sweeping a cell, 0 at its top and 1 at its
@@ -810,6 +839,7 @@ if (typeof module !== "undefined") {
     cleanTitle: cleanTitle,
     currentAddresses: currentAddresses,
     updateTags: updateTags,
+    notifyWindow: notifyWindow,
     waitingSpan: waitingSpan,
     backgroundCandidates: backgroundCandidates,
     withBackground: withBackground,

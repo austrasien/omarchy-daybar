@@ -20,6 +20,9 @@ the time, this one the space.
   goes to; else Super+1…0, Super+S for the scratchpad), and beside `DONE`
   how long the turn took. **Click** the card to open that
   window on its desk; until then it covers what is under it.
+- A notification from an app whose window is on another desk shows the same
+  kind of card by that window: `MESSAGE`, the sender as its title, the
+  message under it (summarised when long). It goes once you open the desk.
 - **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.
@@ -110,6 +113,7 @@ After editing the QML, run `omarchy-restart-shell`: the panel is keepLoaded.
 | `autoCompact` | Renumber the desks 1..n whenever a gap appears. |
 | `leds` | Drive the alert LEDs and the agents-live file. |
 | `iconOverrides` | `{ "<window class>": "<icon name or path>" }`. |
+| `notifyWindows` | `{ "<app, icon or desktop entry pattern>": "<window class pattern>" }`, for a notification whose window the bar does not find by itself. |
 | `hideFullscreen` | Window class regexes the bar hides over in fullscreen, on top of the windows that tell Hyprland they are games. |
 
 `autoCompact` and `leds` are off by default: only one plugin may do these at
@@ -121,6 +125,7 @@ a time.
 omarchy-shell austraz.daybar toggle       # show or hide
 omarchy-shell austraz.daybar focusAlert   # go to the desk being signalled
 omarchy-shell austraz.daybar showNumbers  # held Super (hideNumbers on release)
+omarchy-shell austraz.daybar notify <id> <app> <icon> <desktop-entry> <sender>  # a message card by the app's window; its text with `summary <id> <text>`
 omarchy-shell austraz.daybar ask <session> <text>      # what a blocked agent asks to do, on its card
 omarchy-shell austraz.daybar summarizing <session>     # the card's reticle turns meanwhile
 omarchy-shell austraz.daybar summary <session> <text>  # a line under the card's title ("" ends the wait)

@@ -390,6 +390,53 @@ Item {
   // Sessions whose summary is being made, with when it started: their card's
   // reticle keeps turning until it comes, ten minutes at most.
   property var summarizing: ({})
+  // Notifications, by the address of their app's window: { id, sender }.
+  // The window then shows a "message" card, the body's summary keyed by id.
+  property var messages: ({})
+
+  // A notification from notify-card: a card by its app's window, when that
+  // window is on another desk. A second one on the same window starts the
+  // card again.
+  function applyNotify(id, app, icon, desktop, sender) {
+    var windows = allWindows.map(function(w) { return { address: w.address, appId: w.appId, title: root.titleOf(w.address) } })
+    var address = Model.notifyWindow(windows, app, icon, desktop, cfg.notifyWindows)
+    if (!address) return
+    var win = allWindows.filter(function(w) { return w.address === address })[0]
+    if (win && (win.workspace === currentWorkspace || win.address === focusedAddress)) return
+    if (messages[address]) {
+      dropMessage(address)
+      syncTags()
+    }
+    var next = ({})
+    for (var k in messages) next[k] = messages[k]
+    next[address] = { id: String(id), sender: String(sender || app || "") }
+    messages = next
+  }
+
+  function dropMessage(address) {
+    var gone = messages[address]
+    if (!gone) return
+    var next = ({})
+    for (var k in messages) if (k !== address) next[k] = messages[k]
+    messages = next
+    if (summaries[gone.id] !== undefined) dropSummary(gone.id)
+    if (summarizing[gone.id] !== undefined) dropSummarizing(gone.id)
+  }
+
+  function isMessageId(id) {
+    for (var k in messages) if (messages[k].id === id) return true
+    return false
+  }
+
+  // Seen (its desk opened) or closed: the message goes.
+  function acknowledgeMessages() {
+    for (var address in messages) {
+      var win = allWindows.filter(function(w) { return w.address === address })[0]
+      if (!win || win.workspace === currentWorkspace || address === focusedAddress
+          || (win.scratchpad && scratchpadShown)) dropMessage(address)
+    }
+  }
+
   // Each session's turn: when it began, and how long it took once done.
   property var turns: ({})
   // What an agent stopped on a permission prompt is asking to do, by session.
@@ -673,7 +720,7 @@ Item {
       if (doneFlashes[address] > t && !m[address]) m[address] = "done"
     return m
   }
-  readonly property var states: Model.windowStates(markers, urgentAddresses)
+  readonly property var states: Model.windowStates(markers, urgentAddresses, messages)
 
   readonly property int doneFlashMs: 3 * 700
   property var doneFlashes: ({})
@@ -889,7 +936,8 @@ Item {
     if (summarizing[session] !== undefined) dropSummarizing(session)
     text = String(text || "").trim()
     var agent = agents[session]
-    if (!text || !agent || (agent.state !== "done" && agent.state !== "idle")) return
+    var current = isMessageId(session) || (agent && (agent.state === "done" || agent.state === "idle"))
+    if (!text || !current) return
     var next = ({})
     for (var k in summaries) next[k] = summaries[k]
     next[session] = text
@@ -910,6 +958,7 @@ Item {
   }
 
   function summaryFor(address) {
+    if (messages[address]) return summaries[messages[address].id] || ""
     for (var k in agents)
       if (agents[k].address === address && summaries[k]) return summaries[k]
     return ""
@@ -917,6 +966,10 @@ Item {
 
   function summarizingFor(address) {
     tagNow
+    if (messages[address]) {
+      var since = summarizing[messages[address].id]
+      return since !== undefined && Date.now() - since < summaryWaitMs
+    }
     for (var k in agents)
       if (agents[k].address === address && summarizing[k] !== undefined
           && Date.now() - summarizing[k] < summaryWaitMs) return true
@@ -924,6 +977,7 @@ Item {
   }
 
   function acknowledgeAgents() {
+    acknowledgeMessages()
     var changed = false, next = ({})
     for (var k in agents) {
       var agent = agents[k]
@@ -1076,6 +1130,19 @@ Item {
     onLoadFailed: loaded = true
   }
   onTurnsChanged: if (turnsFile.loaded) turnsFile.setText(JSON.stringify(turns) + "\n")
+  FileView {
+    id: messagesFile
+    property bool loaded: false
+    path: root.runtimeDir + "/austraz-daybar-messages.json"
+    printErrors: false
+    atomicWrites: true
+    onLoaded: {
+      try { root.messages = JSON.parse(text() || "{}") || ({}) } catch (e) {}
+      loaded = true
+    }
+    onLoadFailed: loaded = true
+  }
+  onMessagesChanged: if (messagesFile.loaded) messagesFile.setText(JSON.stringify(messages) + "\n")
 
   FileView {
     id: tagsFile
@@ -1653,14 +1720,16 @@ Item {
               readonly property bool waiting: agentState === "waiting"
               readonly property bool done: agentState === "done"
               readonly property bool working: agentState === "working"
-              readonly property string tagWord: waiting ? "WAIT" : done ? "DONE" : ""
+              readonly property bool message: agentState === "message"
+              readonly property string tagWord: waiting ? "WAIT" : done ? "DONE" : message ? "MESSAGE" : ""
               readonly property real tagBegan: !info ? 0
                 : more ? info.hidden.reduce(function(m, a) { return Math.max(m, root.tagStart(a)) }, 0)
                 : root.tagStart(info.address)
               readonly property bool tagMoving: !!info
                 && (more ? info.hidden.some(function(a) { return root.tagMoves(a) }) : root.tagMoves(info.address))
-              readonly property string tagTitle: tagLive && tagWord !== "" && !more && Model.isClaudeWindow(info.appId)
-                ? Model.cleanTitle(root.titleOf(info.address)) : ""
+              readonly property string tagTitle: !tagLive || tagWord === "" || more ? ""
+                : message && root.messages[info.address] ? root.messages[info.address].sender
+                : Model.isClaudeWindow(info.appId) ? Model.cleanTitle(root.titleOf(info.address)) : ""
               readonly property bool tagLive: !desk.current && !!info
                 && (more ? info.hidden.some(function(a) { return root.tagKept(a) }) : root.tagKept(info.address))
               readonly property bool tagFaded: tagLive
@@ -2098,6 +2167,7 @@ Item {
     function summary(session: string, text: string): void { root.applySummary(session, text) }
     function summarizing(session: string): void { root.applySummarizing(session) }
     function ask(session: string, text: string): void { root.applyAsk(session, text) }
+    function notify(id: string, app: string, icon: string, desktop: string, sender: string): void { root.applyNotify(id, app, icon, desktop, sender) }
     function peek(on: string): void { root.peeking = on === "on" }
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
