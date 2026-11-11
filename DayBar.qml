@@ -1379,46 +1379,38 @@ Item {
             width: root.backingWidth
           }
 
-          // Held Super: a tab glued to the bar, as tall as the desk, holding
-          // its number, so each desk's extent reads at a glance.
+          // Held Super: a bracket from the desk's top to its bottom, its ends
+          // reaching the bar, with the desk's number set on it.
           Item {
-            id: deskTab
+            id: deskBracket
             visible: root.superOpen
             x: root.stripWidth - root.backingWidth - width
-            y: 1
-            width: 34
-            height: parent.height - 2
+            y: 2
+            width: 9
+            height: parent.height - 4
             readonly property color tint: desk.current ? root.bright : root.hud
 
-            Rectangle {
-              anchors.fill: parent
-              color: Color.background
-              Rectangle {
-                anchors.fill: parent
-                color: Qt.alpha(deskTab.tint, desk.current ? 0.3 : 0.12)
-              }
-            }
-            Rectangle { x: 0; width: 3; height: parent.height; color: deskTab.tint }
-            Rectangle { x: 0; y: 0; width: parent.width; height: 2; color: deskTab.tint }
-            Rectangle { x: 0; y: parent.height - 2; width: parent.width; height: 2; color: deskTab.tint }
+            Rectangle { x: 0; width: 2; height: parent.height; color: deskBracket.tint }
+            Rectangle { x: 0; y: 0; width: parent.width; height: 2; color: deskBracket.tint }
+            Rectangle { x: 0; y: parent.height - 2; width: parent.width; height: 2; color: deskBracket.tint }
 
             Rectangle {
-              x: 3 + (parent.width - 3 - width) / 2
+              x: 1 - width / 2
               anchors.verticalCenter: parent.verticalCenter
-              width: 24
-              height: 24
-              radius: 3
-              color: desk.current ? deskTab.tint : root.hudBlack
-              border.width: 2
-              border.color: deskTab.tint
+              width: 20
+              height: 20
+              radius: 2
+              color: root.hudBlack
+              border.width: 1
+              border.color: deskBracket.tint
 
               Text {
                 anchors.centerIn: parent
                 text: desk.info ? desk.info.label : ""
                 textFormat: Text.PlainText
-                color: desk.current ? root.hudBlack : deskTab.tint
+                color: deskBracket.tint
                 font.family: Style.fontFamily
-                font.pixelSize: 15
+                font.pixelSize: 12
                 font.bold: true
               }
             }
@@ -1576,7 +1568,7 @@ Item {
                 }
                 active: wanted || held
                 // Left of the desk's number when it shows, never over it.
-                x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 36 : block.x) - width - 7
+                x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
                 y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? root.tagAt(cell.tagBegan) : 0.5)
                 sourceComponent: HudCard {
                   bar: root
