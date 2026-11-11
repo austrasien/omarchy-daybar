@@ -207,7 +207,20 @@ Item {
                 spacing: 4
                 Repeater {
                   model: hudCard.keys
-                  delegate: KeyCap { required property string modelData; label: modelData }
+                  // Caps blinks: Super+Caps jumps to this desk, not another.
+                  delegate: KeyCap {
+                    id: cap
+                    required property string modelData
+                    label: modelData
+                    readonly property bool blinks: modelData === "CAPS"
+                    SequentialAnimation on opacity {
+                      running: cap.blinks && hudCard.visible && bar.animate
+                      loops: Animation.Infinite
+                      onRunningChanged: if (!running) cap.opacity = 1
+                      NumberAnimation { to: 0.2; duration: 420; easing.type: Easing.InOutSine }
+                      NumberAnimation { to: 1; duration: 420; easing.type: Easing.InOutSine }
+                    }
+                  }
                 }
               }
             }
