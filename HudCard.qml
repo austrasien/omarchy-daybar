@@ -165,6 +165,17 @@ Item {
           Item {
             id: hudHeader
             readonly property bool keyed: hudCard.keys.length > 0
+            // Super and Caps blink together: Super+Caps jumps to this desk,
+            // not another.
+            readonly property bool capsBlinks: hudCard.keys.indexOf("CAPS") !== -1
+            property real capsGlow: 1
+            SequentialAnimation on capsGlow {
+              running: hudHeader.capsBlinks && hudCard.visible && bar.animate
+              loops: Animation.Infinite
+              onRunningChanged: if (!running) hudHeader.capsGlow = 1
+              NumberAnimation { to: 0.2; duration: 420; easing.type: Easing.InOutSine }
+              NumberAnimation { to: 1; duration: 420; easing.type: Easing.InOutSine }
+            }
             width: parent.width
             height: keyed ? Math.max(keysRow.height, headCol.height) : hudHead.implicitHeight
 
@@ -193,7 +204,11 @@ Item {
               visible: hudHeader.keyed
               anchors.verticalCenter: parent.verticalCenter
               spacing: 6
-              KeyCap { label: "SUPER"; anchors.verticalCenter: parent.verticalCenter }
+              KeyCap {
+                label: "SUPER"
+                anchors.verticalCenter: parent.verticalCenter
+                opacity: hudHeader.capsBlinks ? hudHeader.capsGlow : 1
+              }
               HudLabel {
                 anchors.verticalCenter: parent.verticalCenter
                 text: "+"
@@ -207,19 +222,10 @@ Item {
                 spacing: 4
                 Repeater {
                   model: hudCard.keys
-                  // Caps blinks: Super+Caps jumps to this desk, not another.
                   delegate: KeyCap {
-                    id: cap
                     required property string modelData
                     label: modelData
-                    readonly property bool blinks: modelData === "CAPS"
-                    SequentialAnimation on opacity {
-                      running: cap.blinks && hudCard.visible && bar.animate
-                      loops: Animation.Infinite
-                      onRunningChanged: if (!running) cap.opacity = 1
-                      NumberAnimation { to: 0.2; duration: 420; easing.type: Easing.InOutSine }
-                      NumberAnimation { to: 1; duration: 420; easing.type: Easing.InOutSine }
-                    }
+                    opacity: modelData === "CAPS" ? hudHeader.capsGlow : 1
                   }
                 }
               }
