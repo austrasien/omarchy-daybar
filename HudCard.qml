@@ -158,59 +158,96 @@ Item {
           width: hudCard.width - 28
           spacing: 6
 
+          // The header. With keys: the keys that open the desk on the left,
+          // Super then a column of the keys that go with it (Caps over 5),
+          // and on the right the label over the status. Without: label and
+          // status on one line.
           Item {
+            id: hudHeader
+            readonly property bool keyed: hudCard.keys.length > 0
             width: parent.width
-            height: hudHead.implicitHeight
-            Row {
-              spacing: 8
+            height: keyed ? Math.max(keysRow.height, headCol.height) : hudHead.implicitHeight
+
+            component KeyCap: Rectangle {
+              id: keyCap
+              property string label: ""
+              width: capLabel.implicitWidth + 14
+              height: capLabel.implicitHeight + 6
+              radius: 2
+              color: hudCard.faded ? "transparent" : Qt.alpha(hudCard.ink, 0.08)
+              border.width: 1
+              border.color: hudCard.ink
               HudLabel {
-                id: hudHead
-                anchors.verticalCenter: parent.verticalCenter
-                text: "◆ " + hudCard.head
-                color: bar.hud
+                id: capLabel
+                anchors.centerIn: parent
+                text: keyCap.label
+                color: hudCard.ink
+                font.pixelSize: 14
                 style: hudCard.faded ? Text.Outline : Text.Normal
                 styleColor: bar.hudBlack
               }
             }
-            HudLabel {
-              anchors.right: parent.right
-              text: hudCard.t < 0.75 ? "ACQUIRING" : hudCard.status
-              color: hudCard.t < 0.75 ? bar.bright : hudCard.statusInk
-              style: hudCard.faded ? Text.Outline : Text.Normal
-              styleColor: bar.hudBlack
-              opacity: hudCard.t >= 0.75 || Math.floor(hudCard.t * 24) % 2 ? 1 : 0.3
-            }
-          }
 
-          // Under the header, the keys that open the desk: one Super, then
-          // the keys that go with it, Super + Caps / 5.
-          Row {
-            id: keysRow
-            visible: hudCard.keys.length > 0
-            spacing: 5
-            Repeater {
-              model: hudCard.keys.length ? ["SUPER", "+"].concat(hudCard.keys.reduce(function(out, k, i) {
-                return i ? out.concat(["/", k]) : [k]
-              }, [])) : []
-              delegate: Rectangle {
-                required property string modelData
-                readonly property bool sign: modelData === "+" || modelData === "/"
+            Row {
+              id: keysRow
+              visible: hudHeader.keyed
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: 6
+              KeyCap { label: "SUPER"; anchors.verticalCenter: parent.verticalCenter }
+              HudLabel {
                 anchors.verticalCenter: parent.verticalCenter
-                width: sign ? keyLabel.implicitWidth + 2 : keyLabel.implicitWidth + 14
-                height: keyLabel.implicitHeight + 6
-                radius: 2
-                color: sign || hudCard.faded ? "transparent" : Qt.alpha(hudCard.ink, 0.08)
-                border.width: sign ? 0 : 1
-                border.color: hudCard.ink
+                text: "+"
+                color: bar.dim
+                font.pixelSize: 14
+                style: hudCard.faded ? Text.Outline : Text.Normal
+                styleColor: bar.hudBlack
+              }
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                Repeater {
+                  model: hudCard.keys
+                  delegate: KeyCap { required property string modelData; label: modelData }
+                }
+              }
+            }
+
+            Column {
+              id: headCol
+              anchors.right: parent.right
+              anchors.verticalCenter: hudHeader.keyed ? parent.verticalCenter : undefined
+              spacing: 4
+              Item {
+                anchors.right: hudHeader.keyed ? parent.right : undefined
+                width: hudHeader.keyed ? hudHead.implicitWidth : hudHeader.width
+                height: hudHead.implicitHeight
                 HudLabel {
-                  id: keyLabel
-                  anchors.centerIn: parent
-                  text: modelData
-                  color: sign ? bar.dim : hudCard.ink
-                  font.pixelSize: 14
+                  id: hudHead
+                  anchors.right: hudHeader.keyed ? parent.right : undefined
+                  text: "◆ " + hudCard.head
+                  color: bar.hud
                   style: hudCard.faded ? Text.Outline : Text.Normal
                   styleColor: bar.hudBlack
                 }
+                HudLabel {
+                  visible: !hudHeader.keyed
+                  anchors.right: parent.right
+                  text: hudStatus.text
+                  color: hudStatus.color
+                  opacity: hudStatus.opacity
+                  style: hudStatus.style
+                  styleColor: bar.hudBlack
+                }
+              }
+              HudLabel {
+                id: hudStatus
+                visible: hudHeader.keyed
+                anchors.right: parent.right
+                text: hudCard.t < 0.75 ? "ACQUIRING" : hudCard.status
+                color: hudCard.t < 0.75 ? bar.bright : hudCard.statusInk
+                style: hudCard.faded ? Text.Outline : Text.Normal
+                styleColor: bar.hudBlack
+                opacity: hudCard.t >= 0.75 || Math.floor(hudCard.t * 24) % 2 ? 1 : 0.3
               }
             }
           }
@@ -271,7 +308,7 @@ Item {
           visible: hudCard.reticle
           x: hudCard.width - 14 - width
           // Level with the title, below the keys when they show.
-          y: 40 + (keysRow.visible ? keysRow.height + 6 : 0)
+          y: 40 + hudHeader.height - hudHead.implicitHeight
           width: 34
           height: 34
           scale: 1 + (1 - hudCard.seg(0.3, 0.75)) * 0.6
