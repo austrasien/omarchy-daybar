@@ -29,7 +29,8 @@ Item {
   // readable over whatever is under it.
   property bool faded: false
   property real backdrop: faded ? 0 : 1
-  Behavior on backdrop { NumberAnimation { duration: bar.dur(600) } }
+  // Back at once when Super is pressed, gently away when it is let go.
+  Behavior on backdrop { NumberAnimation { duration: bar.dur(hudCard.faded ? 400 : 90) } }
   property bool clickable: false
   signal closed()
   signal clicked()

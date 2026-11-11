@@ -1621,7 +1621,8 @@ Item {
                 }
                 // Faded, it lets clicks through to what shows under it. Held
                 // Super brings its background back, and its click with it.
-                readonly property bool faded: cell.tagFaded && !root.superOpen
+                // numbersShown, not superOpen: no wait for the bar to deploy.
+                readonly property bool faded: cell.tagFaded && !root.numbersShown
                 readonly property bool clickNow: wanted && !faded
                 onWantedChanged: if (wanted) held = true
                 onClickNowChanged: root.setCardClickable(tagCard, clickNow)
