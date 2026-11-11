@@ -1442,7 +1442,8 @@ Item {
             color: desk.index % 2 === 0 ? root.hud : Qt.tint(Color.foreground, Qt.alpha("#ffffff", 0.85))
             style: Text.Outline
             styleColor: root.hudBlack
-            font.family: Style.fontFamily
+            // A sans-serif face: its I is a plain bar.
+            font.family: "Liberation Sans"
             font.pixelSize: Math.max(9, root.railWidth + 2)
             font.bold: true
             font.letterSpacing: 1
