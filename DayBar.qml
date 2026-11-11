@@ -743,12 +743,13 @@ Item {
     }
     return waiting || done
   }
-  // The shortcuts that open a desk, for its cards: Super+Caps when it is the
-  // one that jumps there (bindings.lua), Super+1…0 for desks 1 to 10, Super+S
-  // for the scratchpad.
+  // The shortcut that opens a desk, for its cards: Super+Caps when it is the
+  // one that jumps there (bindings.lua), else Super+1…0 for desks 1 to 10,
+  // Super+S for the scratchpad.
   function deskKeys(id) {
+    // The desk Super+Caps goes to shows only that: one key to learn.
+    if (id && alertDesk() === id) return ["CAPS"]
     var keys = []
-    if (id && alertDesk() === id) keys.push("CAPS")
     if (id > 0 && id <= 10) keys.push(String(id % 10))
     else if (id < 0) keys.push("S")
     return keys
