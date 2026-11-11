@@ -390,6 +390,8 @@ Item {
   // Sessions whose summary is being made, with when it started: their card's
   // reticle keeps turning until it comes, ten minutes at most.
   property var summarizing: ({})
+  // Each session's turn: when it began, and how long it took once done.
+  property var turns: ({})
   // What an agent stopped on a permission prompt is asking to do, by session.
   property var asks: ({})
   readonly property int summaryWaitMs: 10 * 60000
@@ -811,6 +813,7 @@ Item {
       if (summaries[session] !== undefined) dropSummary(session)
       if (summarizing[session] !== undefined) dropSummarizing(session)
     }
+    noteTurn(session, state, agents[session])
     var next = ({})
     for (var k in agents) if (k !== session) next[k] = agents[k]
     if (state === "end") { agents = next; return }
@@ -827,6 +830,37 @@ Item {
     if (reported === "done" && agentInView(agent)) agent.state = "idle"
     next[session] = agent
     agents = next
+  }
+
+  // A turn begins when the agent starts working (a permission wait is part
+  // of it) and ends when it is done.
+  function noteTurn(session, state, prev) {
+    var busy = function(st) { return st === "working" || st === "waiting" }
+    var was = prev ? prev.state : ""
+    var next = ({})
+    for (var k in turns) if (k !== session) next[k] = turns[k]
+    var turn = turns[session]
+    if (state === "end") { turns = next; return }
+    if (busy(state) && !busy(was)) next[session] = { start: Date.now(), took: 0 }
+    else if (state === "done" && busy(was) && turn && turn.start) next[session] = { start: turn.start, took: Date.now() - turn.start }
+    else if (turn) next[session] = turn
+    else return
+    turns = next
+  }
+
+  function tookFor(address) {
+    for (var k in agents)
+      if (agents[k].address === address && turns[k] && turns[k].took > 0) return turns[k].took
+    return 0
+  }
+
+  // 45 S, 12 MIN, 1 H 05.
+  function spanLabel(ms) {
+    var s = Math.round(ms / 1000)
+    if (s < 60) return s + " S"
+    var m = Math.round(s / 60)
+    if (m < 60) return m + " MIN"
+    return Math.floor(m / 60) + " H " + (m % 60 < 10 ? "0" : "") + (m % 60)
   }
 
   function dropSummary(session) {
@@ -1029,6 +1063,19 @@ Item {
     onLoadFailed: loaded = true
   }
   onSummariesChanged: if (summariesFile.loaded) summariesFile.setText(JSON.stringify(summaries) + "\n")
+  FileView {
+    id: turnsFile
+    property bool loaded: false
+    path: root.runtimeDir + "/austraz-daybar-turns.json"
+    printErrors: false
+    atomicWrites: true
+    onLoaded: {
+      try { root.turns = JSON.parse(text() || "{}") || ({}) } catch (e) {}
+      loaded = true
+    }
+    onLoadFailed: loaded = true
+  }
+  onTurnsChanged: if (turnsFile.loaded) turnsFile.setText(JSON.stringify(turns) + "\n")
 
   FileView {
     id: tagsFile
@@ -1692,7 +1739,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, ask: "", keys: [], desk: 0, address: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, ask: "", keys: [], took: 0, desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1705,6 +1752,7 @@ Item {
                     seeking: cell.tagTitle !== "" && !cell.waiting && root.summarizingFor(cell.info.address),
                     ask: cell.tagTitle !== "" && cell.waiting ? root.askFor(cell.info.address) : "",
                     keys: root.deskKeys(desk.deskId),
+                    took: cell.done && cell.tagTitle !== "" ? root.tookFor(cell.info.address) : 0,
                     desk: desk.deskId,
                     address: !cell.info ? ""
                       : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagKept(a) })
@@ -1740,7 +1788,8 @@ Item {
                   onClosed: tagCard.held = false
                   ink: tagCard.said.alarm ? root.alarm : root.hud
                   head: "DESK " + (tagCard.said.desk > 0 ? root.roman(tagCard.said.desk) : tagCard.said.label)
-                  status: tagCard.said.word
+                  // How long the turn took, beside DONE.
+                  status: tagCard.said.word + (tagCard.said.took > 0 ? " · " + root.spanLabel(tagCard.said.took) : "")
                   title: tagCard.said.title
 
                   seeking: tagCard.said.seeking

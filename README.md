@@ -17,7 +17,8 @@ the time, this one the space.
   Code, Claude Code Local and Forge, in green when finished and red when blocked;
   the desk and `DONE` or `WAIT` for the others, and the keys that open the desk
   (Super+Caps alone, blinking, for the desk `focusAlert`
-  goes to; else Super+1…0, Super+S for the scratchpad). **Click** the card to open that
+  goes to; else Super+1…0, Super+S for the scratchpad), and beside `DONE`
+  how long the turn took. **Click** the card to open that
   window on its desk; until then it covers what is under it.
 - **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
