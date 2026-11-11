@@ -743,6 +743,16 @@ Item {
     }
     return waiting || done
   }
+  // The shortcuts that open a desk, for its cards: Super+Caps when it is the
+  // one that jumps there (bindings.lua), Super+1…0 for desks 1 to 10, Super+S
+  // for the scratchpad.
+  function deskKeys(id) {
+    var keys = []
+    if (id && alertDesk() === id) keys.push("CAPS")
+    if (id > 0 && id <= 10) keys.push(String(id % 10))
+    else if (id < 0) keys.push("S")
+    return keys
+  }
   function focusAlert() {
     var id = alertDesk()
     if (!id) return false
@@ -1681,7 +1691,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, ask: "", desk: 0, address: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, ask: "", keys: [], desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1693,6 +1703,7 @@ Item {
                     summary: cell.tagTitle !== "" ? root.summaryFor(cell.info.address) : "",
                     seeking: cell.tagTitle !== "" && !cell.waiting && root.summarizingFor(cell.info.address),
                     ask: cell.tagTitle !== "" && cell.waiting ? root.askFor(cell.info.address) : "",
+                    keys: root.deskKeys(desk.deskId),
                     desk: desk.deskId,
                     address: !cell.info ? ""
                       : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagKept(a) })
@@ -1745,6 +1756,51 @@ Item {
                     styleColor: root.hudBlack
                     lineHeight: 1.15
                     font.pixelSize: 14
+                  }
+
+                  // The keys that open the desk: Super+Caps / Super+5.
+                  Row {
+                    visible: tagCard.said.keys.length > 0
+                    spacing: 6
+                    Repeater {
+                      model: tagCard.said.keys
+                      delegate: Row {
+                        required property string modelData
+                        required property int index
+                        spacing: 4
+                        HudLabel {
+                          visible: index > 0
+                          anchors.verticalCenter: parent.verticalCenter
+                          text: "/  "
+                          color: root.dim
+                          style: tagCard.faded ? Text.Outline : Text.Normal
+                          styleColor: root.hudBlack
+                        }
+                        Repeater {
+                          model: ["SUPER", "+", modelData]
+                          delegate: Rectangle {
+                            required property string modelData
+                            readonly property bool plus: modelData === "+"
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: plus ? keyLabel.implicitWidth : keyLabel.implicitWidth + 10
+                            height: keyLabel.implicitHeight + 4
+                            radius: 2
+                            color: plus || tagCard.faded ? "transparent" : Qt.alpha(root.hud, 0.08)
+                            border.width: plus ? 0 : 1
+                            border.color: tagCard.said.alarm ? root.alarm : root.hud
+                            HudLabel {
+                              id: keyLabel
+                              anchors.centerIn: parent
+                              text: modelData
+                              color: tagCard.said.alarm ? root.alarm : root.hud
+                              font.pixelSize: 11
+                              style: tagCard.faded ? Text.Outline : Text.Normal
+                              styleColor: root.hudBlack
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
