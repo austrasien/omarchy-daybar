@@ -1610,7 +1610,7 @@ Item {
                   onClicked: root.openCard(tagCard.said)
                   onClosed: tagCard.held = false
                   ink: tagCard.said.alarm ? root.alarm : root.hud
-                  head: "DESK " + tagCard.said.label
+                  head: "DESK " + (tagCard.said.desk > 0 ? root.roman(tagCard.said.desk) : tagCard.said.label)
                   status: tagCard.said.word
                   title: tagCard.said.title
                 }
