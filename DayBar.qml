@@ -1233,6 +1233,13 @@ Item {
     onFinished: root.deploy = 0
   }
 
+  function roman(n) {
+    var out = "", vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    var syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+    for (var i = 0; i < vals.length; i++) while (n >= vals[i]) { out += syms[i]; n -= vals[i] }
+    return out
+  }
+
   function deploySeg(a, b) {
     var p = Math.max(0, Math.min(1, (deploy - a) / (b - a)))
     return 1 - Math.pow(1 - p, 3)
@@ -1419,6 +1426,27 @@ Item {
                 font.bold: true
               }
             }
+          }
+
+          // At rest: the desk's number in Roman numerals, lying on the rail
+          // in its middle, read from the top (a V points left, as a <).
+          Text {
+            z: 4
+            visible: opacity > 0 && text !== "" && desk.height > implicitWidth + 8
+            opacity: 1 - root.openness
+            text: desk.deskId > 0 ? root.roman(desk.deskId) : ""
+            textFormat: Text.PlainText
+            x: root.stripWidth - root.railWidth / 2 - width / 2
+            anchors.verticalCenter: parent.verticalCenter
+            rotation: 90
+            color: desk.current ? root.nowColor
+              : desk.index % 2 === 0 ? root.hud : Qt.tint(Color.foreground, Qt.alpha("#ffffff", 0.85))
+            style: Text.Outline
+            styleColor: root.hudBlack
+            font.family: Style.fontFamily
+            font.pixelSize: Math.max(9, root.railWidth + 2)
+            font.bold: true
+            font.letterSpacing: 1
           }
 
           // The current desk while it holds no window.
