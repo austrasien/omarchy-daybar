@@ -1388,15 +1388,16 @@ Item {
             y: 2
             width: 9
             height: parent.height - 4
-            // Neighbours alternate between the accent and the theme's muted
-            // colour, by position, so two desks side by side never match:
-            // monochrome themes differ only in lightness.
-            readonly property color tint: desk.current ? root.bright
-              : desk.index % 2 === 0 ? root.hud : Qt.lighter(Color.muted, 1.2)
+            // Neighbours alternate between the accent and near-white, by
+            // position, so two desks side by side never match, even in a
+            // monochrome theme. The current desk fills its number instead.
+            readonly property color tint: desk.index % 2 === 0 ? root.hud
+              : Qt.tint(Color.foreground, Qt.alpha("#ffffff", 0.85))
+            readonly property int stroke: desk.current ? 3 : 2
 
-            Rectangle { x: 0; width: 2; height: parent.height; color: deskBracket.tint }
-            Rectangle { x: 0; y: 0; width: parent.width; height: 2; color: deskBracket.tint }
-            Rectangle { x: 0; y: parent.height - 2; width: parent.width; height: 2; color: deskBracket.tint }
+            Rectangle { x: 0; width: deskBracket.stroke; height: parent.height; color: deskBracket.tint }
+            Rectangle { x: 0; y: 0; width: parent.width; height: deskBracket.stroke; color: deskBracket.tint }
+            Rectangle { x: 0; y: parent.height - deskBracket.stroke; width: parent.width; height: deskBracket.stroke; color: deskBracket.tint }
 
             Rectangle {
               x: 1 - width / 2
@@ -1404,7 +1405,7 @@ Item {
               width: 20
               height: 20
               radius: 2
-              color: root.hudBlack
+              color: desk.current ? deskBracket.tint : root.hudBlack
               border.width: 1
               border.color: deskBracket.tint
 
@@ -1412,7 +1413,7 @@ Item {
                 anchors.centerIn: parent
                 text: desk.info ? desk.info.label : ""
                 textFormat: Text.PlainText
-                color: deskBracket.tint
+                color: desk.current ? root.hudBlack : deskBracket.tint
                 font.family: Style.fontFamily
                 font.pixelSize: 12
                 font.bold: true
