@@ -115,6 +115,7 @@ a time.
 omarchy-shell austraz.daybar toggle       # show or hide
 omarchy-shell austraz.daybar focusAlert   # go to the desk being signalled
 omarchy-shell austraz.daybar showNumbers  # held Super (hideNumbers on release)
+omarchy-shell austraz.daybar ask <session> <text>      # what a blocked agent asks to do, on its card
 omarchy-shell austraz.daybar summarizing <session>     # the card's reticle turns meanwhile
 omarchy-shell austraz.daybar summary <session> <text>  # a line under the card's title ("" ends the wait)
 omarchy-shell austraz.daybar alerts       # the agents and the desk signalled, as JSON

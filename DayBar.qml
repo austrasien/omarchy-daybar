@@ -390,6 +390,8 @@ Item {
   // Sessions whose summary is being made, with when it started: their card's
   // reticle keeps turning until it comes, ten minutes at most.
   property var summarizing: ({})
+  // What an agent stopped on a permission prompt is asking to do, by session.
+  property var asks: ({})
   readonly property int summaryWaitMs: 10 * 60000
   property var urgentAddresses: ({})
   property bool scratchpadShown: false
@@ -788,6 +790,12 @@ Item {
   }
 
   function applyAgent(session, state, pidsCsv) {
+    // May come just before its `waiting`: dropped only once the agent moves on.
+    if (state !== "waiting" && asks[session] !== undefined) {
+      var rest = ({})
+      for (var a in asks) if (a !== session) rest[a] = asks[a]
+      asks = rest
+    }
     if (state !== "done" && state !== "idle") {
       if (summaries[session] !== undefined) dropSummary(session)
       if (summarizing[session] !== undefined) dropSummarizing(session)
@@ -841,6 +849,19 @@ Item {
     for (var k in summaries) next[k] = summaries[k]
     next[session] = text
     summaries = next
+  }
+
+  function applyAsk(session, text) {
+    var next = ({})
+    for (var k in asks) next[k] = asks[k]
+    next[session] = String(text || "").trim()
+    asks = next
+  }
+
+  function askFor(address) {
+    for (var k in agents)
+      if (agents[k].address === address && asks[k]) return asks[k]
+    return ""
   }
 
   function summaryFor(address) {
@@ -1660,7 +1681,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, desk: 0, address: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, ask: "", desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1670,7 +1691,8 @@ Item {
                     alarm: cell.waiting,
                     label: desk.info ? desk.info.label : "",
                     summary: cell.tagTitle !== "" ? root.summaryFor(cell.info.address) : "",
-                    seeking: cell.tagTitle !== "" && root.summarizingFor(cell.info.address),
+                    seeking: cell.tagTitle !== "" && !cell.waiting && root.summarizingFor(cell.info.address),
+                    ask: cell.tagTitle !== "" && cell.waiting ? root.askFor(cell.info.address) : "",
                     desk: desk.deskId,
                     address: !cell.info ? ""
                       : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagKept(a) })
@@ -1716,8 +1738,9 @@ Item {
                   TypedText {
                     width: parent.width
                     bar: root
-                    full: tagCard.said.summary || ""
-                    color: root.bright
+                    // Blocked: what it asks to do. Finished: its reply.
+                    full: (tagCard.said.alarm ? tagCard.said.ask : tagCard.said.summary) || ""
+                    color: tagCard.said.alarm ? Qt.tint(root.alarm, Qt.alpha("#ffffff", 0.55)) : root.bright
                     style: tagCard.faded ? Text.Outline : Text.Normal
                     styleColor: root.hudBlack
                     lineHeight: 1.15
@@ -2012,6 +2035,7 @@ Item {
     function agent(session: string, state: string, pids: string): void { root.applyAgent(session, state, pids) }
     function summary(session: string, text: string): void { root.applySummary(session, text) }
     function summarizing(session: string): void { root.applySummarizing(session) }
+    function ask(session: string, text: string): void { root.applyAsk(session, text) }
     function peek(on: string): void { root.peeking = on === "on" }
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
