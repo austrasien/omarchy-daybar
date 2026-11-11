@@ -25,6 +25,11 @@ Item {
   readonly property real spread: (1 - seg(0.3, 0.6)) * 14
   readonly property real bracketOpacity: t < 0.3 ? 0 : (t > 0.62 && t < 0.66) || (t > 0.7 && t < 0.74) ? 0.15 : 1
   property bool shown: true
+  // Faded: no background, only the text and the brackets, outlined to stay
+  // readable over whatever is under it.
+  property bool faded: false
+  property real backdrop: faded ? 0 : 1
+  Behavior on backdrop { NumberAnimation { duration: bar.dur(600) } }
   property bool clickable: false
   signal closed()
   signal clicked()
@@ -89,11 +94,13 @@ Item {
 
       Rectangle {
         anchors.fill: parent
+        opacity: hudCard.backdrop
         color: bar.hudBlack
         border.width: 1
         border.color: bar.dim
       }
       Image {
+        opacity: hudCard.backdrop
         anchors.fill: parent
         fillMode: Image.Tile
         verticalAlignment: Image.AlignTop
@@ -120,11 +127,19 @@ Item {
           Item {
             width: parent.width
             height: hudHead.implicitHeight
-            HudLabel { id: hudHead; text: "◆ " + hudCard.head; color: bar.hud }
+            HudLabel {
+              id: hudHead
+              text: "◆ " + hudCard.head
+              color: bar.hud
+              style: hudCard.faded ? Text.Outline : Text.Normal
+              styleColor: bar.hudBlack
+            }
             HudLabel {
               anchors.right: parent.right
               text: hudCard.t < 0.75 ? "ACQUIRING" : hudCard.status
               color: hudCard.t < 0.75 ? bar.bright : hudCard.statusInk
+              style: hudCard.faded ? Text.Outline : Text.Normal
+              styleColor: bar.hudBlack
               opacity: hudCard.t >= 0.75 || Math.floor(hudCard.t * 24) % 2 ? 1 : 0.3
             }
           }
@@ -153,6 +168,8 @@ Item {
             text: hudCard.title
             textFormat: Text.PlainText
             color: hudCard.ink
+            style: hudCard.faded ? Text.Outline : Text.Normal
+            styleColor: bar.hudBlack
             wrapMode: Text.Wrap
             maximumLineCount: 3
             elide: Text.ElideRight
@@ -214,6 +231,7 @@ Item {
 
       // Worn tape: dark lines across everything, text included.
       Image {
+        opacity: hudCard.backdrop
         anchors.fill: parent
         fillMode: Image.Tile
         verticalAlignment: Image.AlignTop

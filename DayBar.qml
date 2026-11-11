@@ -912,6 +912,10 @@ Item {
     return ""
   }
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
+  // Past its five minutes a tag stays, faded to its text, until its desk
+  // is opened or its state changes.
+  function tagKept(address) { var t = tags[address]; return !!t && t.until !== 0 && t.state !== "working" }
+  function tagFaded(address) { return tagKept(address) && tags[address].until <= tagNow }
   // A tag sweeps its window for its first seconds, then holds still to be read.
   readonly property int tagSweepMs: 1500
   readonly property int tagOneWayMs: 450
@@ -1522,7 +1526,9 @@ Item {
               readonly property string tagTitle: tagLive && tagWord !== "" && !more && Model.isClaudeWindow(info.appId)
                 ? Model.cleanTitle(root.titleOf(info.address)) : ""
               readonly property bool tagLive: !desk.current && !!info
-                && (more ? info.hidden.some(function(a) { return root.tagOn(a) }) : root.tagOn(info.address))
+                && (more ? info.hidden.some(function(a) { return root.tagKept(a) }) : root.tagKept(info.address))
+              readonly property bool tagFaded: tagLive
+                && (more ? !info.hidden.some(function(a) { return root.tagOn(a) }) : root.tagFaded(info.address))
               // Where the white bar is on the clock, drawn anew at each start.
               property real barPhase: Math.random() * 2
               onWorkingChanged: if (working) barPhase = Math.random() * 2
@@ -1609,17 +1615,18 @@ Item {
                     summary: cell.tagTitle !== "" ? root.summaryFor(cell.info.address) : "",
                     desk: desk.deskId,
                     address: !cell.info ? ""
-                      : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagOn(a) })
+                      : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagKept(a) })
                       : cell.info.address
                   })
                 }
-                onWantedChanged: {
+                // Faded, it lets clicks through to what shows under it.
+                readonly property bool faded: cell.tagFaded
+                readonly property bool clickNow: wanted && !faded
+                onWantedChanged: if (wanted) held = true
+                onClickNowChanged: root.setCardClickable(tagCard, clickNow)
+                Component.onCompleted: {
                   if (wanted) held = true
-                  root.setCardClickable(tagCard, wanted)
-                }
-                Component.onCompleted: if (wanted) {
-                  held = true
-                  root.setCardClickable(tagCard, true)
+                  if (clickNow) root.setCardClickable(tagCard, true)
                 }
                 onHeldChanged: root.tagCardsHeld += held ? 1 : -1
                 Component.onDestruction: {
@@ -1633,7 +1640,8 @@ Item {
                 sourceComponent: HudCard {
                   bar: root
                   shown: tagCard.wanted
-                  clickable: tagCard.wanted
+                  faded: tagCard.faded
+                  clickable: tagCard.clickNow
                   onClicked: root.openCard(tagCard.said)
                   onClosed: tagCard.held = false
                   ink: tagCard.said.alarm ? root.alarm : root.hud
@@ -1648,6 +1656,8 @@ Item {
                     text: tagCard.said.summary || ""
                     textFormat: Text.PlainText
                     color: root.bright
+                    style: tagCard.faded ? Text.Outline : Text.Normal
+                    styleColor: root.hudBlack
                     wrapMode: Text.Wrap
                     maximumLineCount: 3
                     elide: Text.ElideRight
