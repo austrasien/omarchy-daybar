@@ -78,7 +78,9 @@ process died are dropped every minute.
 A reporter can add a one-line summary of the agent's last reply with
 `summary <session> <text>` once the turn has ended: Claude Code, Claude Code
 Local and Forge cards show it under the title. It is dropped when the next
-turn starts, and ignored if the agent is no longer done.
+turn starts, and ignored if the agent is no longer done. Announced first with
+`summarizing <session>`, it keeps the card's reticle turning until it comes,
+then types itself out under the title as the day tape's card does.
 
 ## Install
 
@@ -112,7 +114,8 @@ a time.
 omarchy-shell austraz.daybar toggle       # show or hide
 omarchy-shell austraz.daybar focusAlert   # go to the desk being signalled
 omarchy-shell austraz.daybar showNumbers  # held Super (hideNumbers on release)
-omarchy-shell austraz.daybar summary <session> <text>  # a line under the card's title
+omarchy-shell austraz.daybar summarizing <session>     # the card's reticle turns meanwhile
+omarchy-shell austraz.daybar summary <session> <text>  # a line under the card's title ("" ends the wait)
 omarchy-shell austraz.daybar alerts       # the agents and the desk signalled, as JSON
 omarchy-shell austraz.daybar peek on      # deploy without the pointer (peek off)
 omarchy-shell austraz.daybar state        # what the rail holds, as JSON

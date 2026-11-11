@@ -387,6 +387,10 @@ Item {
   // One-line summaries of an agent's last reply, by session, sent by a
   // reporter through the `summary` command once its turn has ended.
   property var summaries: ({})
+  // Sessions whose summary is being made, with when it started: their card's
+  // reticle keeps turning until it comes, ten minutes at most.
+  property var summarizing: ({})
+  readonly property int summaryWaitMs: 10 * 60000
   property var urgentAddresses: ({})
   property bool scratchpadShown: false
   onScratchpadShownChanged: Qt.callLater(acknowledgeAgents)
@@ -784,7 +788,10 @@ Item {
   }
 
   function applyAgent(session, state, pidsCsv) {
-    if (summaries[session] !== undefined && state !== "done" && state !== "idle") dropSummary(session)
+    if (state !== "done" && state !== "idle") {
+      if (summaries[session] !== undefined) dropSummary(session)
+      if (summarizing[session] !== undefined) dropSummarizing(session)
+    }
     var next = ({})
     for (var k in agents) if (k !== session) next[k] = agents[k]
     if (state === "end") { agents = next; return }
@@ -809,13 +816,30 @@ Item {
     summaries = next
   }
 
-  // Kept only while the agent still sits on that finished turn.
+  function dropSummarizing(session) {
+    var next = ({})
+    for (var k in summarizing) if (k !== session) next[k] = summarizing[k]
+    summarizing = next
+  }
+
+  // May come just before the agent's own `done`: not tied to its state.
+  function applySummarizing(session) {
+    var next = ({})
+    for (var k in summarizing) next[k] = summarizing[k]
+    next[session] = Date.now()
+    summarizing = next
+  }
+
+  // Kept only while the agent still sits on that finished turn. An empty
+  // text only ends the wait: the summary failed.
   function applySummary(session, text) {
+    if (summarizing[session] !== undefined) dropSummarizing(session)
+    text = String(text || "").trim()
     var agent = agents[session]
-    if (!agent || (agent.state !== "done" && agent.state !== "idle")) return
+    if (!text || !agent || (agent.state !== "done" && agent.state !== "idle")) return
     var next = ({})
     for (var k in summaries) next[k] = summaries[k]
-    next[session] = String(text || "").trim()
+    next[session] = text
     summaries = next
   }
 
@@ -823,6 +847,14 @@ Item {
     for (var k in agents)
       if (agents[k].address === address && summaries[k]) return summaries[k]
     return ""
+  }
+
+  function summarizingFor(address) {
+    tagNow
+    for (var k in agents)
+      if (agents[k].address === address && summarizing[k] !== undefined
+          && Date.now() - summarizing[k] < summaryWaitMs) return true
+    return false
   }
 
   function acknowledgeAgents() {
@@ -1612,7 +1644,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", desk: 0, address: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", seeking: false, desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1622,6 +1654,7 @@ Item {
                     alarm: cell.waiting,
                     label: desk.info ? desk.info.label : "",
                     summary: cell.tagTitle !== "" ? root.summaryFor(cell.info.address) : "",
+                    seeking: cell.tagTitle !== "" && root.summarizingFor(cell.info.address),
                     desk: desk.deskId,
                     address: !cell.info ? ""
                       : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagKept(a) })
@@ -1660,19 +1693,18 @@ Item {
                   status: tagCard.said.word
                   title: tagCard.said.title
 
-                  // The reply in one sentence, under the conversation's title.
-                  Text {
-                    visible: text !== ""
+                  seeking: tagCard.said.seeking
+
+                  // The reply in one sentence, under the conversation's title,
+                  // typed out word by word as the day tape's card does.
+                  TypedText {
                     width: parent.width
-                    text: tagCard.said.summary || ""
-                    textFormat: Text.PlainText
+                    bar: root
+                    full: tagCard.said.summary || ""
                     color: root.bright
                     style: tagCard.faded ? Text.Outline : Text.Normal
                     styleColor: root.hudBlack
-                    // All of it: the summary is short by design.
-                    wrapMode: Text.Wrap
                     lineHeight: 1.15
-                    font.family: Style.fontFamily
                     font.pixelSize: 14
                   }
                 }
@@ -1963,6 +1995,7 @@ Item {
     function hideNumbers(): void { root.numbersShown = false }
     function agent(session: string, state: string, pids: string): void { root.applyAgent(session, state, pids) }
     function summary(session: string, text: string): void { root.applySummary(session, text) }
+    function summarizing(session: string): void { root.applySummarizing(session) }
     function peek(on: string): void { root.peeking = on === "on" }
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }

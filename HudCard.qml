@@ -28,6 +28,37 @@ Item {
   // Faded: no background, only the text and the brackets, outlined to stay
   // readable over whatever is under it.
   property bool faded: false
+  // Seeking: the reticle keeps turning, as it does before a lock, until
+  // what it waits for comes; then it spins down onto the target.
+  property bool seeking: false
+  property real seekTurn: 0
+  NumberAnimation on seekTurn {
+    running: hudCard.seeking && hudCard.visible
+    from: 0
+    to: 360
+    duration: 1400
+    loops: Animation.Infinite
+  }
+  onSeekingChanged: {
+    if (seeking) return
+    var angle = ((spin * spinFrom + seekTurn) % 360 + 360) % 360
+    seekTurn = 0
+    // Still opening: its own lock is on the way.
+    if (lockAnimation.running) return
+    spinFrom = angle < 70 ? angle + 360 : angle
+    spinMs = 600 + Math.random() * 600
+    spin = 1
+    relock.restart()
+  }
+  NumberAnimation {
+    id: relock
+    target: hudCard
+    property: "spin"
+    from: 1
+    to: 0
+    duration: bar.dur(hudCard.spinMs)
+    easing.type: Easing.OutCubic
+  }
   property real backdrop: faded ? 0 : 1
   // Back at once when Super is pressed, gently away when it is let go.
   Behavior on backdrop { NumberAnimation { duration: bar.dur(hudCard.faded ? 400 : 90) } }
@@ -208,7 +239,7 @@ Item {
 
           Item {
             anchors.fill: parent
-            rotation: hudCard.spin * hudCard.spinFrom
+            rotation: hudCard.spin * hudCard.spinFrom + hudCard.seekTurn
 
             Rectangle { anchors.fill: parent; anchors.margins: 5; radius: width / 2; color: "transparent"; border.width: 1; border.color: bar.bright }
             Rectangle { x: parent.width / 2; width: 1; height: 9; color: bar.bright }
@@ -224,7 +255,7 @@ Item {
             color: "transparent"
             border.width: 1
             border.color: bar.hud
-            rotation: 45 - hudCard.spin * hudCard.spinFrom * 0.75
+            rotation: 45 - (hudCard.spin * hudCard.spinFrom + hudCard.seekTurn) * 0.75
           }
           Rectangle { anchors.centerIn: parent; width: 3; height: 3; color: bar.bright }
         }
