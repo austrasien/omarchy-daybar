@@ -384,6 +384,9 @@ Item {
   property var lastFocus: ({})
   // { session: { state, pids, address } }, fed by the `agent` IPC call.
   property var agents: ({})
+  // One-line summaries of an agent's last reply, by session, sent by a
+  // reporter through the `summary` command once its turn has ended.
+  property var summaries: ({})
   property var urgentAddresses: ({})
   property bool scratchpadShown: false
   onScratchpadShownChanged: Qt.callLater(acknowledgeAgents)
@@ -781,6 +784,7 @@ Item {
   }
 
   function applyAgent(session, state, pidsCsv) {
+    if (summaries[session] !== undefined && state !== "done" && state !== "idle") dropSummary(session)
     var next = ({})
     for (var k in agents) if (k !== session) next[k] = agents[k]
     if (state === "end") { agents = next; return }
@@ -797,6 +801,28 @@ Item {
     if (reported === "done" && agentInView(agent)) agent.state = "idle"
     next[session] = agent
     agents = next
+  }
+
+  function dropSummary(session) {
+    var next = ({})
+    for (var k in summaries) if (k !== session) next[k] = summaries[k]
+    summaries = next
+  }
+
+  // Kept only while the agent still sits on that finished turn.
+  function applySummary(session, text) {
+    var agent = agents[session]
+    if (!agent || (agent.state !== "done" && agent.state !== "idle")) return
+    var next = ({})
+    for (var k in summaries) next[k] = summaries[k]
+    next[session] = String(text || "").trim()
+    summaries = next
+  }
+
+  function summaryFor(address) {
+    for (var k in agents)
+      if (agents[k].address === address && summaries[k]) return summaries[k]
+    return ""
   }
 
   function acknowledgeAgents() {
@@ -1571,7 +1597,7 @@ Item {
                 readonly property bool wanted: cell.tagLive && cell.tagWord !== ""
                 // Still there while it closes, saying what it said.
                 property bool held: false
-                property var said: ({ word: "", title: "", alarm: false, label: "", desk: 0, address: "" })
+                property var said: ({ word: "", title: "", alarm: false, label: "", summary: "", desk: 0, address: "" })
                 Binding on said {
                   when: tagCard.wanted
                   restoreMode: Binding.RestoreNone
@@ -1580,6 +1606,7 @@ Item {
                     title: cell.tagTitle !== "" ? cell.tagTitle : cell.tagWord,
                     alarm: cell.waiting,
                     label: desk.info ? desk.info.label : "",
+                    summary: cell.tagTitle !== "" ? root.summaryFor(cell.info.address) : "",
                     desk: desk.deskId,
                     address: !cell.info ? ""
                       : cell.more ? Model.tagTarget(cell.info.hidden, root.states, function(a) { return root.tagOn(a) })
@@ -1613,6 +1640,20 @@ Item {
                   head: "DESK " + (tagCard.said.desk > 0 ? root.roman(tagCard.said.desk) : tagCard.said.label)
                   status: tagCard.said.word
                   title: tagCard.said.title
+
+                  // The reply in one sentence, under the conversation's title.
+                  Text {
+                    visible: text !== ""
+                    width: parent.width
+                    text: tagCard.said.summary || ""
+                    textFormat: Text.PlainText
+                    color: root.bright
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    font.family: Style.fontFamily
+                    font.pixelSize: 12
+                  }
                 }
               }
 
@@ -1900,6 +1941,7 @@ Item {
     function showNumbers(): void { root.numbersShown = true }
     function hideNumbers(): void { root.numbersShown = false }
     function agent(session: string, state: string, pids: string): void { root.applyAgent(session, state, pids) }
+    function summary(session: string, text: string): void { root.applySummary(session, text) }
     function peek(on: string): void { root.peeking = on === "on" }
     function card(zone: string): void { root.hoveredZone = zone === "none" ? "" : zone }
     function state(): string { return JSON.stringify({ layout: root.layout, states: root.states }) }
