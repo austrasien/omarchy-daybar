@@ -1,0 +1,931 @@
+#!/usr/bin/env python3
+"""Report a Claude Code session in tmux on the Forge host to the day bar.
+
+Runs on the laptop, one per Forge Code window (started by cursor-cli-remote).
+One long-lived ssh carries a small monitor that runs on the server: it reads
+the session's tmux pane and the stamps of its Claude Code hook every 0.4 s,
+decides the agent's state there, and writes a line only when that state
+changes, plus a heartbeat every 10 s. At the end of a turn the line carries
+Claude's final reply (summarised here on the NPU by agent-summary) or, when
+blocked, the tool call it asks for. This side maps it onto the local Foot
+window and calls omarchy-shell.
+
+Exits on SIGTERM, a dead launcher or a lost ssh attach, so it never outlives
+its window. A lost stream reconnects, keeping the last state. The monitor on
+the server exits when its tmux session is gone, or on its next write once
+this side is gone.
+"""
+from __future__ import annotations
+
+import argparse
+import inspect
+import json
+import os
+import re
+import select
+import signal
+import subprocess
+import time
+from pathlib import Path
+
+# Agent state goes to the day bar.
+AGENT_PLUGINS = ("austraz.daybar",)
+CLAUDE_STAMP_NAME = "spaces-forge-stamp-claude.py"
+CLAUDE_HOOK_EVENTS = (
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "Notification",
+    "SubagentStop",
+    "Stop",
+    "SessionEnd",
+)
+# Older Claude Code printed "esc to interrupt"; current builds show only the
+# spinner line, e.g. "✻ Puttering… (19m 0s · ↓ 21.2k tokens)".
+# A turn can also end (Stop hook, prompt back) while background work goes
+# on, and Claude picks up again once it finishes: "✻ Waiting for 1
+# background agent to finish", or "· 1 shell" at the end of the footer.
+# That counts as running too, so the desk does not blink "done" mid-task.
+CLAUDE_RUNNING_RE = (
+    r"\besc to interrupt\b|…\s*\((?:\d+h\s*)?(?:\d+m\s*)?\d+s\b"
+    r"|\bWaiting for \d+ background \w+ to finish\b"
+    r"|·\s*\d+ (?:shell|agent)s?[ \t]*(?:\n|$)"
+)
+CLAUDE_WAITING_RE = r"Do you want to [^\n?]{0,80}\?"
+APP_ID = "org.omarchy.agent.forge"
+STAMP_WORKING_GRACE = 20.0
+IDLE_POLLS = 8
+HEARTBEAT = 10.0
+# No line for this long: the stream is stuck, start it again.
+STREAM_STALE = 3 * HEARTBEAT
+SUMMARY_BIN = Path.home() / ".config/omarchy/bin/agent-summary"
+TURN_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "spaces-agent" / "summary"
+AGENT_ASK = Path.home() / ".config/omarchy/bin/agent-ask"
+
+def log(path: Path, msg: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write("%s %s\n" % (time.strftime("%H:%M:%S"), msg))
+
+
+def safe_id(name: str) -> str:
+    out = re.sub(r"[^A-Za-z0-9._-]", "_", name or "")
+    return out or "session"
+
+
+def sh_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "'\\''") + "'"
+
+
+def proc_text(pid: int, name: str) -> str:
+    try:
+        return Path("/proc/%d/%s" % (pid, name)).read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def proc_cmdline(pid: int) -> str:
+    try:
+        return (
+            Path("/proc/%d/cmdline" % pid)
+            .read_bytes()
+            .replace(b"\0", b" ")
+            .decode("utf-8", "replace")
+        )
+    except OSError:
+        return ""
+
+
+def proc_ppid(pid: int) -> int:
+    stat = proc_text(pid, "stat")
+    if not stat:
+        return 0
+    rest = stat[stat.rfind(")") + 1 :].split()
+    if len(rest) < 2:
+        return 0
+    try:
+        return int(rest[1])
+    except ValueError:
+        return 0
+
+
+def proc_alive(pid: int) -> bool:
+    return pid > 1 and Path("/proc/%d" % pid).exists()
+
+
+def foot_pid_of(pid: int) -> int:
+    while pid > 1:
+        if proc_text(pid, "comm").strip() == "foot":
+            return pid
+        pid = proc_ppid(pid)
+    return 0
+
+
+def ssh_pid_of(launcher: int) -> int:
+    if launcher <= 1:
+        return 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if proc_ppid(pid) != launcher:
+            continue
+        if proc_text(pid, "comm").strip() != "ssh":
+            continue
+        cmdline = proc_cmdline(pid)
+        if "RequestTTY=force" in cmdline or "-tt" in cmdline:
+            return pid
+    return 0
+
+
+def pids_csv(ssh: int, foot: int, launcher: int) -> str:
+    parts = []
+    if ssh > 1:
+        parts.append(str(ssh))
+    if foot > 1:
+        parts.append(str(foot))
+    if launcher > 1:
+        parts.append(str(launcher))
+    return ",".join(parts)
+
+
+def shutil_which(name: str) -> bool:
+    from shutil import which
+
+    return which(name) is not None
+
+
+def report(session: str, state: str, pids: str, log_path: Path) -> None:
+    if not session or not state or not pids:
+        return
+    if not shutil_which("omarchy-shell"):
+        return
+    log(log_path, "report %s id=%s pids=%s" % (state, session, pids))
+    for plugin in AGENT_PLUGINS:
+        subprocess.Popen(
+            ["omarchy-shell", plugin, "agent", session, state, pids],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def mark_turn(spaces_id: str, turn: str) -> None:
+    try:
+        TURN_DIR.mkdir(parents=True, exist_ok=True)
+        (TURN_DIR / spaces_id).write_text(turn + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def summarize(spaces_id: str, turn: str, reply: str, log_path: Path) -> None:
+    """The reply in a sentence on the NPU, for the day bar's card (detached)."""
+    mark_turn(spaces_id, turn)
+    if not SUMMARY_BIN.is_file():
+        return
+    log(log_path, "summarize %s turn=%s" % (spaces_id, turn))
+    try:
+        proc = subprocess.Popen(
+            [str(SUMMARY_BIN), spaces_id, turn, "--text"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            text=True,
+        )
+        proc.stdin.write(reply)
+        proc.stdin.close()
+    except OSError:
+        pass
+
+
+def send_ask(spaces_id: str, text: str) -> None:
+    for plugin in AGENT_PLUGINS:
+        subprocess.Popen(
+            ["omarchy-shell", plugin, "ask", spaces_id, text],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def classify(data: dict) -> str:
+    if data.get("waiting"):
+        return "waiting"
+    stamp = str(data.get("stamp") or "")
+    try:
+        age = float(data.get("stamp_age") if data.get("stamp_age") is not None else 99999)
+    except (TypeError, ValueError):
+        age = 99999.0
+    running = bool(data.get("running"))
+    if stamp == "waiting" and age < 120:
+        return "waiting"
+    if stamp == "working" and (running or age < STAMP_WORKING_GRACE):
+        return "working"
+    if running:
+        return "working"
+    if stamp == "done" and age < 120:
+        return "done"
+    if stamp == "end":
+        return "end"
+    return ""
+
+
+def decide(prev: str, seen: str, idle_n: int) -> tuple[str, int]:
+    if seen in ("waiting", "working"):
+        return seen, 0
+    if seen == "end":
+        return "end", 0
+    if seen == "done" and prev in ("working", "waiting", "done"):
+        return "done", idle_n
+    if prev in ("working", "waiting"):
+        idle_n += 1
+        if idle_n >= IDLE_POLLS:
+            return "done", idle_n
+        return prev, idle_n
+    return "", idle_n
+
+
+def install_claude_hooks(remote: str, stamp_src: Path | None = None) -> bool:
+    stamp_src = stamp_src or stamp_src_path()
+    if not stamp_src.is_file():
+        return False
+    body = stamp_src.read_text(encoding="utf-8")
+    env = {**os.environ, "SSH_ASKPASS_REQUIRE": "never"}
+    dest = "~/.claude/hooks/%s" % CLAUDE_STAMP_NAME
+    # Only touch files whose content changes: running sessions watch settings.json.
+    upload = (
+        "mkdir -p ~/.claude/hooks && t=$(mktemp ~/.claude/hooks/.stamp.XXXXXX) && cat > \"$t\""
+        " && if cmp -s \"$t\" %s; then rm -f \"$t\"; else chmod +x \"$t\" && mv \"$t\" %s; fi"
+    ) % (dest, dest)
+    merge = r"""
+import json
+from pathlib import Path
+cmd = "~/.claude/hooks/%s"
+path = Path.home() / ".claude" / "settings.json"
+data = {}
+old = path.read_text(encoding="utf-8") if path.is_file() else ""
+if old:
+    loaded = json.loads(old)
+    if isinstance(loaded, dict):
+        data = loaded
+hooks = data.setdefault("hooks", {})
+for event in %s:
+    groups = hooks.setdefault(event, [])
+    if any(
+        isinstance(h, dict) and h.get("command") == cmd
+        for g in groups if isinstance(g, dict)
+        for h in g.get("hooks", [])
+    ):
+        continue
+    group = {"hooks": [{"type": "command", "command": cmd}]}
+    if event in ("PreToolUse", "PostToolUse", "Notification"):
+        group = {"matcher": "*", **group}
+    groups.append(group)
+new = json.dumps(data, indent=2) + "\n"
+if new != old:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(new, encoding="utf-8")
+""" % (CLAUDE_STAMP_NAME, json.dumps(list(CLAUDE_HOOK_EVENTS)))
+    for command, payload in ((upload, body), ("python3 -u -", merge)):
+        try:
+            subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", remote, command],
+                input=payload,
+                text=True,
+                timeout=10,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return False
+    return True
+
+
+def finish(spaces_id: str, pids: str, state_path: Path, log_path: Path) -> None:
+    if spaces_id and pids:
+        report(spaces_id, "end", pids, log_path)
+    if state_path.is_file():
+        try:
+            state_path.unlink()
+        except OSError:
+            pass
+
+
+def iter_pids() -> list[int]:
+    out = []
+    for entry in Path("/proc").iterdir():
+        if entry.name.isdigit():
+            out.append(int(entry.name))
+    return out
+
+
+def claude_attach_name(cmdline: str) -> str:
+    if "-L claude-code" not in cmdline and "claude-code" not in cmdline:
+        return ""
+    m = re.search(r"(?:new-session -s|attach-session -t) =?(\S+)", cmdline)
+    return m.group(1) if m else ""
+
+
+def kill_watchers(launcher: int) -> None:
+    protected = {launcher, ssh_pid_of(launcher), foot_pid_of(launcher)}
+    for pid in iter_pids():
+        if pid in protected or pid <= 1:
+            continue
+        cmdline = proc_cmdline(pid)
+        comm = proc_text(pid, "comm").strip()
+        ppid = proc_ppid(pid)
+        watch = "spaces-forge-watch" in cmdline and (
+            "--launcher %d" % launcher in cmdline or "--launcher=%d" % launcher in cmdline
+        )
+        old_bash = (
+            ppid == launcher
+            and comm == "bash"
+            and "cursor-cli-remote" in cmdline
+        )
+        if watch or old_bash:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+
+
+
+# The monitor, run on the server by `python3 -u -` (its source on stdin).
+# classify(), decide() and agent-ask's tool_line() are prepended, so both
+# sides share one definition of each.
+MONITOR_LOOP = r"""
+import json, os, re, subprocess, sys, time
+from pathlib import Path
+
+name = os.environ.get("SESSION") or ""
+sock = os.environ.get("SOCK") or "claude-code"
+stamp_dir = Path.home() / ".local/state/spaces-forge/claude"
+
+def tmux(*args):
+    try:
+        return subprocess.check_output(
+            ["tmux", "-L", sock, *args], text=True, stderr=subprocess.DEVNULL, timeout=3
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return ""
+
+def cmdline(pid):
+    try:
+        return Path("/proc/%s/cmdline" % pid).read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+# The session: through the tmux client whose command line carries the
+# launcher's name (a client can move to another session when its own one is
+# destroyed), else the name itself, else the newest client's.
+def resolve():
+    newest = (-1, "")
+    pat = re.compile(r"(?:-s|-t) =?%s(?:\s|$)" % re.escape(name)) if name else None
+    for line in tmux("list-clients", "-F", "#{client_pid}\t#{client_created}\t#{session_name}").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        if pat and pat.search(cmdline(parts[0]) + " "):
+            return parts[2].strip()
+        try:
+            created = int(parts[1])
+        except ValueError:
+            continue
+        if created >= newest[0]:
+            newest = (created, parts[2].strip())
+    return name or newest[1]
+
+# The pane, in one tmux call: its text (the last lines) and its title. None
+# when the session is gone.
+def pane_read(session):
+    if not session:
+        return None
+    try:
+        out = subprocess.run(
+            ["tmux", "-L", sock, "capture-pane", "-p", "-t", session + ":", ";",
+             "display-message", "-p", "-t", session + ":", "\x1e#{pane_title}"],
+            capture_output=True, text=True, timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    plain, _, title = out.stdout.rpartition("\x1e")
+    tail = "\n".join(plain.rstrip().splitlines()[-30:])
+    return {
+        "title": title.strip(),
+        "running": bool(re.search(RUNNING_RE, tail, re.I)),
+        "waiting": bool(re.search(WAITING_RE, tail)),
+    }
+
+# The hook's stamp, read again only when the file changes (a stat a tick).
+stamp_seen = (None, "", 0)
+def stamp_read(session):
+    global stamp_seen
+    path = stamp_dir / session if session and "/" not in session else None
+    try:
+        mtime = path.stat().st_mtime_ns if path else None
+    except OSError:
+        mtime = None
+    if mtime != stamp_seen[0]:
+        stamp, ts = "", 0
+        if mtime is not None:
+            parts = path.read_text(encoding="utf-8", errors="replace").split()
+            stamp = parts[0] if parts else ""
+            try:
+                ts = int(parts[1])
+            except (IndexError, ValueError):
+                ts = 0
+        stamp_seen = (mtime, stamp, ts)
+    _, stamp, ts = stamp_seen
+    return stamp, (time.time() - ts) if ts else 99999.0
+
+def children():
+    kids = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text()
+            ppid = int(stat[stat.rfind(")") + 2:].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        kids.setdefault(ppid, []).append(int(entry.name))
+    return kids
+
+# The transcript, through ~/.claude/sessions/<pid>.json of the claude
+# process under the session's pane.
+def transcript_of(session):
+    try:
+        pane = int(tmux("display-message", "-p", "-t", session + ":", "#{pane_pid}").strip())
+    except ValueError:
+        return None
+    kids, todo, reg = children(), [pane], Path.home() / ".claude/sessions"
+    while todo:
+        pid = todo.pop()
+        meta = reg / ("%d.json" % pid)
+        if meta.is_file():
+            try:
+                sid = json.loads(meta.read_text())["sessionId"]
+            except (OSError, ValueError, KeyError):
+                return None
+            found = list((Path.home() / ".claude/projects").glob("*/%s.jsonl" % sid))
+            return found[0] if found else None
+        todo.extend(kids.get(pid, []))
+    return None
+
+def last_turn(path):
+    # The final message: the text after the turn's last tool call. Its key
+    # is the entry it ends in, not the transcript's last line, which Claude
+    # Code may still append to after the reply.
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 1_000_000))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return "", "", ""
+    key, parts, ask, closed = "", [], "", False
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        content = (entry.get("message") or {}).get("content")
+        if entry.get("type") == "user" and not entry.get("isMeta") and (
+            isinstance(content, str)
+            or (isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "text" for b in content))
+        ):
+            break
+        if entry.get("type") != "assistant" or entry.get("isSidechain") or not isinstance(content, list):
+            continue
+        for block in reversed(content):
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text" and not closed:
+                parts.insert(0, block.get("text") or "")
+                key = key or entry.get("uuid") or ""
+            elif block.get("type") == "tool_use":
+                closed = True
+                if not ask:
+                    ask = tool_line(block.get("name"), block.get("input"))
+                    key = key or entry.get("uuid") or ""
+    return key, "\n".join(p for p in parts if p.strip()), ask
+
+# Read once per turn end; the transcript may lag the stamp a moment.
+def turn_end(session, state):
+    for _ in range(10):
+        path = transcript_of(session)
+        if path:
+            key, reply, ask = last_turn(path)
+            if key and (reply.strip() if state == "done" else ask):
+                return {"reply_key": key, "reply": reply[:12000] if state == "done" else "",
+                        "ask": ask if state == "waiting" else ""}
+        time.sleep(0.4)
+    return {}
+
+def emit(event):
+    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+# Each 0.4 s tick only stats the hook's stamp and decides: the hooks are the
+# main signal. The pane is read once a second, for what they cannot say (a
+# background task after the turn, a permission prompt on screen), and the
+# session found again every 10 s.
+state, idle_n, sent, seen_session, gone = "", 0, 0.0, False, 0
+session, pane, next_resolve, next_pane = "", None, 0.0, 0.0
+while True:
+    now = time.time()
+    if now >= next_resolve:
+        session = resolve()
+        next_resolve = now + 10
+    if now >= next_pane:
+        pane = pane_read(session)
+        next_pane = now + 1
+        if pane is not None:
+            seen_session, gone = True, 0
+        elif seen_session:
+            gone += 1
+            next_resolve = 0
+            if gone >= 10:
+                emit({"session": session, "state": "end", "gone": True})
+                break
+    alive = pane is not None
+    stamp, age = stamp_read(session) if alive else ("", 99999.0)
+    data = dict(pane or {"title": "", "running": False, "waiting": False},
+                stamp=stamp, stamp_age=round(age, 1))
+    seen = classify(data)
+    new, idle_n = decide(state, seen, idle_n)
+    if new != state or now - sent >= HEARTBEAT:
+        event = {"session": session, "state": new, "seen": seen, "title": data["title"],
+                 "stamp": data["stamp"], "stamp_age": data["stamp_age"],
+                 "running": data["running"], "waiting": data["waiting"]}
+        emit(event)
+        sent = now
+        # The state goes at once; the turn's end follows when it is read.
+        if new != state and new in ("done", "waiting") and alive:
+            end = turn_end(session, new)
+            if end:
+                event.update(end)
+                emit(event)
+                sent = time.time()
+    state = new
+    time.sleep(0.4)
+"""
+
+
+def monitor_source() -> str:
+    """The monitor with what it shares with this side, ready for the server."""
+    try:
+        ask = "EMBEDDED = True\n" + AGENT_ASK.read_text(encoding="utf-8")
+    except OSError:
+        ask = "def tool_line(name, args, home=None):\n    return str(name or '')\n"
+    consts = "".join(
+        "%s = %r\n" % (k, v)
+        for k, v in (
+            ("RUNNING_RE", CLAUDE_RUNNING_RE),
+            ("WAITING_RE", CLAUDE_WAITING_RE),
+            ("STAMP_WORKING_GRACE", STAMP_WORKING_GRACE),
+            ("IDLE_POLLS", IDLE_POLLS),
+            ("HEARTBEAT", HEARTBEAT),
+        )
+    )
+    shared = inspect.getsource(classify) + "\n" + inspect.getsource(decide)
+    return "\n".join((ask, consts, shared, MONITOR_LOOP))
+
+
+def stamp_src_path() -> Path:
+    here = Path(__file__).resolve().parent / "hooks" / CLAUDE_STAMP_NAME
+    if here.is_file():
+        return here
+    return Path.home() / ".config/omarchy/cursor-cli-remote-hooks" / CLAUDE_STAMP_NAME
+
+
+class Stream:
+    """The monitor's ssh: started, read without blocking, started again."""
+
+    def __init__(self, remote: str, session: str, sock: str, log_path: Path):
+        self.remote, self.session, self.sock, self.log_path = remote, session, sock, log_path
+        self.proc: subprocess.Popen | None = None
+        self.buf = b""
+        self.last_line = 0.0
+        self.retry_at = 0.0
+        self.backoff = 2.0
+
+    def start(self) -> None:
+        env = "SESSION=%s SOCK=%s python3 -u -" % (sh_quote(self.session), sh_quote(self.sock))
+        try:
+            self.proc = subprocess.Popen(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                 "-o", "ServerAliveInterval=15", self.remote, env],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env={**os.environ, "SSH_ASKPASS_REQUIRE": "never"},
+            )
+            self.proc.stdin.write(monitor_source().encode())
+            self.proc.stdin.close()
+        except OSError:
+            self.stop()
+            self.retry_at = time.time() + self.backoff
+            return
+        self.buf = b""
+        self.last_line = time.time()
+        log(self.log_path, "stream start pid=%s session=%s" % (self.proc.pid, self.session or "new"))
+
+    def stop(self) -> None:
+        if self.proc:
+            try:
+                self.proc.kill()
+                self.proc.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        self.proc = None
+
+    def lines(self, timeout: float) -> list[dict]:
+        """The lines that came within timeout; restarts a lost or stuck stream."""
+        now = time.time()
+        if not self.proc:
+            if now >= self.retry_at:
+                self.start()
+            else:
+                time.sleep(min(timeout, self.retry_at - now))
+                return []
+        if not self.proc:
+            return []
+        if self.proc.poll() is not None or now - self.last_line > STREAM_STALE:
+            log(self.log_path, "stream lost rc=%s, retry in %.0fs" % (self.proc.poll(), self.backoff))
+            self.stop()
+            self.retry_at = now + self.backoff
+            self.backoff = min(self.backoff * 2, 60.0)
+            return []
+        out = []
+        ready, _, _ = select.select([self.proc.stdout], [], [], timeout)
+        if ready:
+            chunk = os.read(self.proc.stdout.fileno(), 65536)
+            if not chunk:
+                return []
+            self.buf += chunk
+            while b"\n" in self.buf:
+                raw, self.buf = self.buf.split(b"\n", 1)
+                try:
+                    event = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    out.append(event)
+            if out:
+                self.last_line = time.time()
+                self.backoff = 2.0
+        return out
+
+
+def watch(args: argparse.Namespace) -> int:
+    log_path = Path(args.log)
+    state_path = Path(args.state)
+    launcher = int(args.launcher)
+    foot = int(args.foot) or foot_pid_of(launcher)
+    name = args.session or ""
+    last = ""
+    last_send = 0.0
+    last_key = ""
+    summarized = ""
+    asked = ""
+    ssh = 0
+    saw_ssh = False
+    missed_ssh = 0
+    spaces_id = "forge-%s" % safe_id(name) if name else ""
+    hooks_ok = False
+    hooks_next = 0.0
+    pids = pids_csv(0, foot, launcher)
+    last_good_pids = pids
+    log(log_path, "watch start launcher=%s foot=%s name=%s pids=%s" % (launcher, foot, name or "new", pids))
+
+    stopping = {"flag": False}
+
+    def handle_stop(_signum=None, _frame=None):
+        stopping["flag"] = True
+
+    signal.signal(signal.SIGTERM, handle_stop)
+    signal.signal(signal.SIGINT, handle_stop)
+    signal.signal(signal.SIGHUP, handle_stop)
+
+    stream = Stream(args.remote, name, args.sock, log_path)
+    try:
+        while not stopping["flag"]:
+            if not proc_alive(launcher):
+                log(log_path, "launcher gone")
+                break
+            now = time.time()
+            if not hooks_ok and now >= hooks_next:
+                hooks_ok = install_claude_hooks(args.remote)
+                log(log_path, "hooks %s" % ("ok" if hooks_ok else "retry"))
+                hooks_next = now + 60
+            if ssh <= 1 or not proc_alive(ssh):
+                ssh = ssh_pid_of(launcher)
+            if ssh > 1:
+                saw_ssh = True
+                missed_ssh = 0
+            elif saw_ssh:
+                missed_ssh += 1
+                if missed_ssh >= 5:
+                    log(log_path, "ssh attach gone")
+                    pids = last_good_pids
+                    break
+                time.sleep(0.4)
+                continue
+            pids = pids_csv(ssh, foot, launcher)
+            last_good_pids = pids
+
+            for event in stream.lines(1.0):
+                sess = str(event.get("session") or "")
+                if sess and not name:
+                    name = sess
+                    stream.session = name
+                if name:
+                    spaces_id = "forge-%s" % safe_id(name)
+                state = str(event.get("state") or "")
+                key = "%s|%s|%s" % (state or "idle", sess, pids)
+                if key != last_key:
+                    log(
+                        log_path,
+                        "event %s seen=%s stamp=%s age=%s running=%s waiting=%s sess=%s pids=%s"
+                        % (state or "idle", event.get("seen") or "-", event.get("stamp") or "-",
+                           event.get("stamp_age", "-"), int(bool(event.get("running"))),
+                           int(bool(event.get("waiting"))), sess, pids),
+                    )
+                    last_key = key
+                if not spaces_id or not pids:
+                    continue
+                if state and state != last:
+                    if state == "end":
+                        report(spaces_id, "end", pids, log_path)
+                        last = ""
+                    else:
+                        if state == "working":
+                            mark_turn(spaces_id, "working")
+                            asked = ""
+                        report(spaces_id, state, pids, log_path)
+                        last = state
+                    last_send = time.time()
+                    state_path.parent.mkdir(parents=True, exist_ok=True)
+                    state_path.write_text("%s %s %s\n" % (spaces_id, state, pids), encoding="utf-8")
+                elif not state and not last:
+                    report(spaces_id, "end", pids, log_path)
+                    last = "idle"
+                    last_send = time.time()
+                # The card's summary once done, the tool call when blocked.
+                reply_key = str(event.get("reply_key") or "")
+                reply = str(event.get("reply") or "")
+                if state == "done" and reply_key and reply.strip() and reply_key != summarized:
+                    summarized = reply_key
+                    summarize(spaces_id, reply_key, reply, log_path)
+                ask = str(event.get("ask") or "")
+                if state == "waiting" and ask and ask != asked:
+                    asked = ask
+                    send_ask(spaces_id, ask)
+                if event.get("gone"):
+                    log(log_path, "tmux session gone")
+            # Working and waiting are said again now and then, as before.
+            if spaces_id and pids and last in ("working", "waiting") and time.time() - last_send >= 15:
+                report(spaces_id, last, pids, log_path)
+                last_send = time.time()
+    finally:
+        stream.stop()
+        finish(spaces_id, pids, state_path, log_path)
+    return 0
+
+
+def live_attaches() -> list[tuple[int, int, str]]:
+    found = []
+    for pid in iter_pids():
+        if proc_text(pid, "comm").strip() != "ssh":
+            continue
+        cmdline = proc_cmdline(pid)
+        if "RequestTTY=force" not in cmdline and "-tt" not in cmdline:
+            continue
+        session = claude_attach_name(cmdline)
+        if not session:
+            continue
+        launcher = proc_ppid(pid)
+        if launcher <= 1 or "cursor-cli-remote" not in proc_cmdline(launcher):
+            continue
+        found.append((launcher, foot_pid_of(launcher), session))
+    return found
+
+
+def adopt(args: argparse.Namespace) -> int:
+    log_path = Path(args.log)
+    watch_bin = str(Path(__file__).resolve())
+    started = 0
+    for launcher, foot, session in live_attaches():
+        kill_watchers(launcher)
+        time.sleep(0.2)
+        runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+        state = str(runtime / ("cursor-cli-remote-spaces.%s" % launcher))
+        cmd = [watch_bin, "--launcher", str(launcher), "--foot", str(foot), "--session", session,
+               "--remote", args.remote, "--sock", args.sock, "--state", state, "--log", str(log_path)]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        log(log_path, "adopt launcher=%s foot=%s session=%s" % (launcher, foot, session))
+        print("adopted launcher=%s foot=%s session=%s" % (launcher, foot, session))
+        started += 1
+    if not started:
+        print("no live forge attach")
+    return 0
+
+
+def self_test() -> int:
+    failed = 0
+    idle, n = decide("working", "", 0)
+    for _ in range(IDLE_POLLS - 1):
+        idle, n = decide(idle, "", n)
+    if idle != "done":
+        print("FAIL debounce: got %r after %s" % (idle, n))
+        failed += 1
+    for data, want in (
+        ({"stamp": "working", "stamp_age": 3, "running": False}, "working"),
+        ({"stamp": "working", "stamp_age": 60, "running": False}, ""),
+        ({"stamp": "working", "stamp_age": 60, "running": True}, "working"),
+        ({"waiting": True}, "waiting"),
+        ({"stamp": "done", "stamp_age": 1}, "done"),
+    ):
+        if classify(data) != want:
+            print("FAIL classify %r" % data)
+            failed += 1
+    if pids_csv(0, 10, 20) != "10,20" or pids_csv(7, 10, 20) != "7,10,20":
+        print("FAIL pids")
+        failed += 1
+    for raw, want_run, want_wait in (
+        ("✻ Pondering… (12s · ↓ 300 tokens · esc to interrupt)\n❯ ", True, False),
+        ("Bash command\n  rm -rf build\n Do you want to proceed?\n ❯ 1. Yes", False, True),
+        ("● Done.\n❯ \n  ⏵⏵ auto mode on (shift+tab to cycle)", False, False),
+    ):
+        running = bool(re.search(CLAUDE_RUNNING_RE, raw, re.I))
+        waiting = bool(re.search(CLAUDE_WAITING_RE, raw))
+        if (running, waiting) != (want_run, want_wait):
+            print("FAIL claude pane %r: got %r" % (raw, (running, waiting)))
+            failed += 1
+    for cmd, want in (
+        ("ssh -tt forge cd /w && exec env LANG=x tmux -u -L claude-code new-session -s cc-1 -c /w claude", "cc-1"),
+        ("ssh -tt forge exec env LANG=x tmux -u -L claude-code attach-session -t =cc-2", "cc-2"),
+    ):
+        if claude_attach_name(cmd) != want:
+            print("FAIL claude attach %r" % cmd)
+            failed += 1
+    try:
+        compile(monitor_source(), "monitor", "exec")
+    except SyntaxError as exc:
+        print("FAIL monitor source: %s" % exc)
+        failed += 1
+    if failed:
+        return 1
+    print("spaces-forge-watch self-test ok")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Day bar reporter for Forge Code (Claude Code)")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--install-hooks", action="store_true")
+    parser.add_argument("--adopt", action="store_true")
+    parser.add_argument("--launcher", type=int, default=0)
+    parser.add_argument("--foot", type=int, default=0)
+    parser.add_argument("--session", default="")
+    parser.add_argument("--remote", default=os.environ.get("CURSOR_REMOTE", "forge"))
+    # Still passed by cursor-cli-remote; Claude Code is the only backend now.
+    parser.add_argument("--agent", default="")
+    parser.add_argument("--backend", default="claude")
+    parser.add_argument("--sock", default=os.environ.get("CURSOR_REMOTE_CLAUDE_SOCK", "claude-code"))
+    parser.add_argument(
+        "--log",
+        default=str(
+            Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local/state"))
+            / "omarchy/spaces-forge-watch.log"
+        ),
+    )
+    parser.add_argument("--state", default="")
+    args = parser.parse_args()
+    if args.self_test:
+        return self_test()
+    if args.install_hooks:
+        ok = install_claude_hooks(args.remote)
+        print("hooks installed on %s" % args.remote if ok else "hooks install failed on %s" % args.remote)
+        return 0 if ok else 1
+    if args.adopt:
+        return adopt(args)
+    if args.backend != "claude":
+        print("spaces-forge-watch: only the claude backend is supported")
+        return 0
+    if not args.state:
+        runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+        args.state = str(runtime / ("cursor-cli-remote-spaces.%s" % (args.launcher or os.getpid())))
+    if args.launcher <= 1:
+        parser.error("--launcher is required")
+    return watch(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

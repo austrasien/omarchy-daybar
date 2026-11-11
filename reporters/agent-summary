@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""Summarise an agent's last reply on the local NPU model, for the day bar.
+
+Usage: agent-summary <session> <turn> < hook.json        (Claude Code Stop hook)
+       agent-summary <session> <turn> --text < reply.txt (any other agent)
+
+Reads the last assistant reply (the hook's `last_assistant_message`, else the
+transcript), asks the pinned model through npu-queue at background priority
+for one short sentence, and hands it to the day bar:
+
+    omarchy-shell austraz.daybar summary <session> <text>
+
+Only when <turn> is still the session's latest Stop: a newer turn makes the
+result stale. Silent on every failure: the card then shows its title alone.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+URL = "http://127.0.0.1:13306/api/v1/chat/completions"
+MODEL = "qwen3.6-moe-35b-a3b-FLM:nothink"
+MAX_INPUT = 6000
+TURN_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "spaces-agent" / "summary"
+LOG = Path.home() / ".local/state/omarchy/agent-summary.log"
+PROMPT = (
+    "Tu es l'agent qui vient d'écrire le message qu'on va te montrer, à l'intention "
+    "de ton utilisateur. Redis-lui l'essentiel toi-même, à la première personne, "
+    "en une ou deux phrases courtes (30 mots au plus), dans la langue du message. "
+    "Pas de markdown, pas de guillemets, pas de préambule : seulement ta phrase."
+)
+
+
+def log(msg):
+    try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        if LOG.exists() and LOG.stat().st_size > 200_000:
+            LOG.write_text(LOG.read_text(errors="replace")[-100_000:])
+        with LOG.open("a") as fh:
+            fh.write("%s %s\n" % (time.strftime("%H:%M:%S"), msg))
+    except OSError:
+        pass
+
+
+def texts(entry):
+    """The text blocks of a transcript entry's message."""
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return [content]
+    if not isinstance(content, list):
+        return []
+    return [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+
+
+def is_prompt(entry):
+    """A user entry the person typed, not a tool result coming back."""
+    if entry.get("type") != "user" or entry.get("isMeta"):
+        return False
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return True
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "text" for b in content)
+
+
+def from_transcript(path):
+    """The text Claude wrote after the last prompt: its reply for that turn."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    parts = []
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if is_prompt(entry):
+            break
+        if entry.get("type") == "assistant" and not entry.get("isSidechain"):
+            parts = texts(entry) + parts
+    # The final message is what the person reads: keep the end.
+    return "\n".join(p for p in parts if p.strip())
+
+
+def reply_of(hook):
+    text = hook.get("last_assistant_message")
+    if isinstance(text, str) and text.strip():
+        return text
+    path = hook.get("transcript_path")
+    if not path:
+        return ""
+    # The transcript may lag the Stop hook by a moment.
+    for _ in range(6):
+        text = from_transcript(path)
+        if text:
+            return text
+        time.sleep(0.5)
+    return ""
+
+
+def summarise(text):
+    if len(text) > MAX_INPUT:
+        text = text[: MAX_INPUT // 3] + "\n[…]\n" + text[-2 * MAX_INPUT // 3:]
+    body = json.dumps({
+        "model": MODEL,
+        "max_tokens": 160,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": PROMPT},
+            {"role": "user", "content": "Voici ce que tu viens de me dire :\n\n" + text
+             + "\n\nRésume-le-moi en une phrase, toi-même."},
+        ],
+    }).encode()
+    req = urllib.request.Request(URL, data=body, headers={
+        "Content-Type": "application/json",
+        "X-NPU-Priority": "background",
+        "X-NPU-Client": "daybar-summary",
+    })
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = json.load(resp)
+    out = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    out = " ".join(out.replace("*", "").replace("`", "").split()).strip(" \"'«»")
+    return out[:600]
+
+
+SHORT_WORDS = 30
+
+
+def plain(text):
+    """The reply as the card would show it: no markdown, one line."""
+    text = re.sub(r"```.*?```", " ", text, flags=re.S)
+    text = re.sub(r"^\s*(?:#+|[-*•]|\d+\.)\s+", "", text, flags=re.M)
+    text = re.sub(r"[*_`]+", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    return " ".join(text.split())
+
+
+def tell_bar(*args):
+    try:
+        subprocess.run(["omarchy-shell", "austraz.daybar", *args],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def still_latest(session, turn):
+    try:
+        return (TURN_DIR / session).read_text().strip() == turn
+    except OSError:
+        return False
+
+
+def main():
+    if len(sys.argv) < 3:
+        return
+    session, turn = sys.argv[1], sys.argv[2]
+    raw = sys.stdin.read()
+    if "--text" in sys.argv[3:]:
+        text = raw
+    else:
+        try:
+            hook = json.loads(raw or "{}")
+        except json.JSONDecodeError:
+            hook = {}
+        log("hook keys %s" % ",".join(sorted(hook)))
+        text = reply_of(hook)
+    if not text.strip():
+        log("no reply for %s" % session)
+        return
+    # Already short: shown as it is, at once, and the NPU stays free.
+    short = plain(text)
+    if len(short.split()) <= SHORT_WORDS:
+        if still_latest(session, turn):
+            log("short %s: %s" % (session, short))
+            tell_bar("summary", session, short)
+        return
+    # The card's reticle turns until the summary (or its failure) comes.
+    tell_bar("summarizing", session)
+    try:
+        summary = summarise(text)
+    except Exception as exc:  # NPU down, queue full, timeout: the card goes without.
+        log("summary failed for %s: %s" % (session, exc))
+        summary = ""
+    if not still_latest(session, turn):
+        log("dropped for %s (stale)" % session)
+        return
+    if summary:
+        log("summary %s: %s" % (session, summary))
+    tell_bar("summary", session, summary)
+
+
+if __name__ == "__main__":
+    main()

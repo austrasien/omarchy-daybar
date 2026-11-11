@@ -85,6 +85,9 @@ turn starts, and ignored if the agent is no longer done. Announced first with
 then types itself out under the title as the day tape's card does.
 Summaries outlive a shell restart, until the next boot.
 
+The scripts that report Claude Code (local, and in tmux on a remote host),
+with the summaries made on a local model, are in [`reporters/`](reporters/).
+
 ## Install
 
 ```sh

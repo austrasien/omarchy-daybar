@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""A tool call in one line, for the day bar's card of a blocked agent.
+
+Usage: agent-ask < '{"tool_name": "Bash", "tool_input": {...}}'
+
+The one place this line is made: the Claude Code hook (spaces-agent.sh) pipes
+the call it saved here, and spaces-forge-watch embeds this file in the script
+it runs on the server, with EMBEDDED set so that main() stays out of the way.
+"""
+import json
+import re
+import sys
+from pathlib import Path
+
+
+def short(text, n=160):
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def tool_line(name, args, home=None):
+    """'$ git push', 'Edit ~/x.lua', 'claude_ai_Gmail · send_message'…"""
+    name, args = str(name or ""), args if isinstance(args, dict) else {}
+    home = str(home or Path.home())
+    path = str(args.get("file_path") or args.get("notebook_path") or "")
+    if path.startswith(home):
+        path = "~" + path[len(home):]
+    if name == "Bash":
+        return short("$ " + str(args.get("command") or ""))
+    if name in ("Edit", "Write", "Read", "MultiEdit", "NotebookEdit"):
+        return short(name + " " + path)
+    if name == "WebFetch":
+        return short("WebFetch " + str(args.get("url") or ""))
+    if name == "WebSearch":
+        return short("WebSearch " + str(args.get("query") or ""))
+    return short(re.sub(r"^mcp__", "", name).replace("__", " · "))
+
+
+def main():
+    try:
+        call = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError:
+        return
+    if call.get("tool_name"):
+        print(tool_line(call.get("tool_name"), call.get("tool_input")))
+
+
+if __name__ == "__main__" and not globals().get("EMBEDDED"):
+    main()
