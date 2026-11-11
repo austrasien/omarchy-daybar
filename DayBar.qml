@@ -1388,7 +1388,11 @@ Item {
             y: 2
             width: 9
             height: parent.height - 4
-            readonly property color tint: desk.current ? root.bright : root.hud
+            // Neighbours alternate between the accent and the theme's muted
+            // colour, by position, so two desks side by side never match:
+            // monochrome themes differ only in lightness.
+            readonly property color tint: desk.current ? root.bright
+              : desk.index % 2 === 0 ? root.hud : Qt.lighter(Color.muted, 1.2)
 
             Rectangle { x: 0; width: 2; height: parent.height; color: deskBracket.tint }
             Rectangle { x: 0; y: 0; width: parent.width; height: 2; color: deskBracket.tint }
