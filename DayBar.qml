@@ -1390,6 +1390,14 @@ Item {
           readonly property bool current: !!info && info.current
           readonly property real darkness: current ? 0
             : Model.deskDarkness(root.nowSec - (root.deskVisits[deskId] || root.startedAt))
+          // An agent's card on this desk already names it: no number then.
+          readonly property bool carded: !!info && !current && info.cells.some(function(c) {
+            var addresses = c.more ? c.hidden : [c.address]
+            return addresses.some(function(a) {
+              var st = root.states[a]
+              return (st === "waiting" || st === "done") && root.tagKept(a)
+            })
+          })
           readonly property bool dropTarget: !!root.dragOver && root.dragOver.id === deskId && deskId !== root.dragFrom
 
           width: root.stripWidth
@@ -1437,6 +1445,7 @@ Item {
             Rectangle { x: 0; y: parent.height - deskBracket.stroke; width: parent.width; height: deskBracket.stroke; color: deskBracket.tint }
 
             Rectangle {
+              visible: !desk.carded
               x: 1 - width / 2
               anchors.verticalCenter: parent.verticalCenter
               width: 20
@@ -1462,7 +1471,7 @@ Item {
           // in its middle, read from the top (a V points left, as a <).
           Text {
             z: 4
-            visible: opacity > 0 && text !== "" && desk.height > implicitWidth + 8
+            visible: opacity > 0 && text !== "" && !desk.carded && desk.height > implicitWidth + 8
             opacity: 1 - root.openness
             text: desk.deskId > 0 ? root.roman(desk.deskId) : ""
             textFormat: Text.PlainText
@@ -1636,8 +1645,8 @@ Item {
                   root.setCardClickable(tagCard, false)
                 }
                 active: wanted || held
-                // Left of the desk's number when it shows, never over it.
-                x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - 21 : block.x) - width - 7
+                // Left of the desk's bracket when it shows, never over it.
+                x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - (desk.carded ? 9 : 21) : block.x) - width - 7
                 y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? root.tagAt(cell.tagBegan) : 0.5)
                 sourceComponent: HudCard {
                   bar: root
