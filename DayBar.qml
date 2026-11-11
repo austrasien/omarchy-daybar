@@ -797,7 +797,20 @@ Item {
       if (agent.state === "waiting") waiting = smallerDesk(waiting, ws)
       else if (agent.state === "done") done = smallerDesk(done, ws)
     }
-    return waiting || done
+    return waiting || done || messageDesk()
+  }
+  // Last in line for Super+Caps: the desk of the oldest unread message (its
+  // id carries when it came). The Caps Lock LED stays the agents'.
+  function messageDesk() {
+    var best = 0, oldest = ""
+    for (var address in messages) {
+      var win = allWindows.filter(function(w) { return w.address === address })[0]
+      if (!win || win.workspace === currentWorkspace) continue
+      var ws = win.scratchpad ? -1 : win.workspace
+      var id = String(messages[address].id)
+      if (!best || id < oldest) { best = ws; oldest = id }
+    }
+    return best
   }
   // The shortcut that opens a desk, for its cards: Super+Caps when it is the
   // one that jumps there (bindings.lua), else Super+1…0 for desks 1 to 10,
@@ -1599,7 +1612,7 @@ Item {
             var addresses = c.more ? c.hidden : [c.address]
             return addresses.some(function(a) {
               var st = root.states[a]
-              return (st === "waiting" || st === "done") && root.tagKept(a)
+              return (st === "waiting" || st === "done" || st === "message") && root.tagKept(a)
             })
           })
           readonly property bool dropTarget: !!root.dragOver && root.dragOver.id === deskId && deskId !== root.dragFrom
