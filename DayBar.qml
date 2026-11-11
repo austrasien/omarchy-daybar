@@ -1619,8 +1619,9 @@ Item {
                       : cell.info.address
                   })
                 }
-                // Faded, it lets clicks through to what shows under it.
-                readonly property bool faded: cell.tagFaded
+                // Faded, it lets clicks through to what shows under it. Held
+                // Super brings its background back, and its click with it.
+                readonly property bool faded: cell.tagFaded && !root.superOpen
                 readonly property bool clickNow: wanted && !faded
                 onWantedChanged: if (wanted) held = true
                 onClickNowChanged: root.setCardClickable(tagCard, clickNow)
@@ -1658,11 +1659,11 @@ Item {
                     color: root.bright
                     style: tagCard.faded ? Text.Outline : Text.Normal
                     styleColor: root.hudBlack
+                    // All of it: the summary is short by design.
                     wrapMode: Text.Wrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
+                    lineHeight: 1.15
                     font.family: Style.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: 14
                   }
                 }
               }
