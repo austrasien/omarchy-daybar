@@ -982,6 +982,22 @@ Item {
     repeat: true
     onTriggered: root.tagNow = Date.now()
   }
+  // The summaries outlive a shell restart, until the next boot, as the
+  // agents and the tags do.
+  FileView {
+    id: summariesFile
+    property bool loaded: false
+    path: root.runtimeDir + "/austraz-daybar-summaries.json"
+    printErrors: false
+    atomicWrites: true
+    onLoaded: {
+      try { root.summaries = JSON.parse(text() || "{}") || ({}) } catch (e) {}
+      loaded = true
+    }
+    onLoadFailed: loaded = true
+  }
+  onSummariesChanged: if (summariesFile.loaded) summariesFile.setText(JSON.stringify(summaries) + "\n")
+
   FileView {
     id: tagsFile
     property bool loaded: false

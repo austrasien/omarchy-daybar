@@ -81,6 +81,7 @@ Local and Forge cards show it under the title. It is dropped when the next
 turn starts, and ignored if the agent is no longer done. Announced first with
 `summarizing <session>`, it keeps the card's reticle turning until it comes,
 then types itself out under the title as the day tape's card does.
+Summaries outlive a shell restart, until the next boot.
 
 ## Install
 
