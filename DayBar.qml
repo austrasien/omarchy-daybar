@@ -1439,8 +1439,7 @@ Item {
             x: root.stripWidth - root.railWidth / 2 - width / 2
             anchors.verticalCenter: parent.verticalCenter
             rotation: 90
-            color: desk.current ? root.nowColor
-              : desk.index % 2 === 0 ? root.hud : Qt.tint(Color.foreground, Qt.alpha("#ffffff", 0.85))
+            color: desk.index % 2 === 0 ? root.hud : Qt.tint(Color.foreground, Qt.alpha("#ffffff", 0.85))
             style: Text.Outline
             styleColor: root.hudBlack
             font.family: Style.fontFamily
