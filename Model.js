@@ -494,13 +494,19 @@ function currentAddresses(layout) {
 // ends for good once the window's desk is on screen; a window whose desk is
 // on screen when its state changes gets none. { address: { state, until } }.
 // Returns `tags` itself when nothing changed.
+// ttl: one span for every state, or { default, <state>: span }.
+function tagTtl(ttl, state) {
+  if (typeof ttl === "number") return ttl
+  return ttl && ttl[state] !== undefined ? ttl[state] : (ttl ? ttl.default : 0)
+}
+
 function updateTags(tags, states, onScreen, nowMs, ttl) {
   var next = {}, changed = false
   for (var address in states) {
     var prev = tags[address]
     var seen = !!onScreen[address]
     if (!prev || prev.state !== states[address]) {
-      next[address] = { state: states[address], until: seen ? 0 : nowMs + ttl }
+      next[address] = { state: states[address], until: seen ? 0 : nowMs + tagTtl(ttl, states[address]) }
       changed = true
     } else if (seen && prev.until !== 0) {
       next[address] = { state: prev.state, until: 0 }
@@ -840,6 +846,7 @@ if (typeof module !== "undefined") {
     currentAddresses: currentAddresses,
     updateTags: updateTags,
     notifyWindow: notifyWindow,
+    tagTtl: tagTtl,
     waitingSpan: waitingSpan,
     backgroundCandidates: backgroundCandidates,
     withBackground: withBackground,

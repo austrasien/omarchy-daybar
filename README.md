@@ -22,7 +22,8 @@ the time, this one the space.
   window on its desk; until then it covers what is under it.
 - A notification from an app whose window is on another desk shows the same
   kind of card by that window: `MESSAGE`, the sender as its title, the
-  message under it (summarised when long). It goes once you open the desk.
+  message under it (summarised when long). It is in full view for a minute,
+  then faded like the others, until you open the desk.
 - **Hold Super** to deploy the bar and see the desk numbers beside it.
 - **Click** a window to focus it.
 - **Drag** a window onto another desk to send it there; you stay where you are.

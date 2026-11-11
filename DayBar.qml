@@ -1051,6 +1051,9 @@ Item {
   // desk (or the scratchpad) is opened. Kept across shell restarts, and not
   // touched just after a start, while the windows and agents come back.
   readonly property int tagMs: 5 * 60000
+  // A message card is in full view for a minute: a lively conversation
+  // would otherwise hold it there.
+  readonly property var tagSpans: ({ default: tagMs, message: 60000 })
   property var tags: ({})
   property real tagNow: Date.now()
   property bool tagsReady: false
@@ -1073,7 +1076,7 @@ Item {
   readonly property int tagOneWayMs: 450
   function tagStart(address) {
     var t = tags[address]
-    return t ? t.until - tagMs : 0
+    return t ? t.until - Model.tagTtl(tagSpans, t.state) : 0
   }
   function tagMoves(address) {
     var t = tags[address]
@@ -1088,7 +1091,7 @@ Item {
   readonly property bool anyTagMoving: Object.keys(tags).some(function(a) { return root.tagMoves(a) })
   function syncTags() {
     if (!tagsReady || !tagsFile.loaded) return
-    var next = Model.updateTags(tags, states, Model.currentAddresses(layout), Date.now(), tagMs)
+    var next = Model.updateTags(tags, states, Model.currentAddresses(layout), Date.now(), tagSpans)
     if (next === tags) return
     tags = next
     tagNow = Date.now()
