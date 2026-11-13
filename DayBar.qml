@@ -206,6 +206,53 @@ Item {
   property int tagCardsHeld: 0
   // The agents' cards on screen, the only part of their surface a click reaches.
   property var clickableCards: []
+  // The agents' cards never overlap. Each wants to sit beside its desk's
+  // cell; in rail order, one that would cover the card above goes down below
+  // it, a pile running off the bottom moves up as a block, and a pile taller
+  // than the screen shrinks just enough to fit.
+  readonly property int cardGap: 16      // 8 px between the brackets, which stand 4 px out of each card
+  readonly property int cardMargin: 12
+  property bool restackQueued: false
+  function queueRestack() {
+    if (restackQueued) return
+    restackQueued = true
+    Qt.callLater(restackCards)
+  }
+  function restackCards() {
+    restackQueued = false
+    var kids = cardLayer.children
+    var cards = []
+    for (var i = 0; i < kids.length; i++) {
+      var c = kids[i]
+      if (c.stacked === true && c.active && c.item && c.height > 0) cards.push(c)
+    }
+    if (cards.length === 0) return
+    cards.sort(function(a, b) { return a.wantY - b.wantY })
+    var room = cardLayer.height - 2 * cardMargin
+    var total = cardGap * (cards.length - 1)
+    for (var j = 0; j < cards.length; j++) total += cards[j].height
+    var fit = total > room && total > 0 ? Math.max(0.3, (room - cardGap * (cards.length - 1)) / (total - cardGap * (cards.length - 1))) : 1
+    var ys = []
+    var bottom = cardMargin - cardGap
+    for (var k = 0; k < cards.length; k++) {
+      var h = cards[k].height * fit
+      var y = Math.max(cards[k].wantY + (cards[k].height - h) / 2, bottom + cardGap, cardMargin)
+      ys.push(y)
+      bottom = y + h
+    }
+    // Off the bottom: the whole pile moves up, keeping its gaps.
+    var limit = cardLayer.height - cardMargin
+    for (var m = cards.length - 1; m >= 0; m--) {
+      var hm = cards[m].height * fit
+      if (ys[m] + hm > limit) ys[m] = limit - hm
+      limit = ys[m] - cardGap
+    }
+    for (var n = 0; n < cards.length; n++) {
+      cards[n].fit = fit
+      cards[n].placedY = Math.max(cardMargin, ys[n])
+    }
+  }
+
   function setCardClickable(card, clickable) {
     var rest = clickableCards.filter(function(c) { return c !== card })
     if (clickable) rest.push(card)
@@ -1861,16 +1908,30 @@ Item {
                 Component.onCompleted: {
                   if (wanted) held = true
                   if (clickNow) root.setCardClickable(tagCard, true)
+                  root.queueRestack()
                 }
                 onHeldChanged: root.tagCardsHeld += held ? 1 : -1
                 Component.onDestruction: {
                   if (held) root.tagCardsHeld -= 1
                   root.setCardClickable(tagCard, false)
+                  root.queueRestack()
                 }
                 active: wanted || held
+                // Placed by root.restackCards(), never over another card.
+                readonly property bool stacked: true
+                readonly property real wantY: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? root.tagAt(cell.tagBegan) : 0.5)
+                property real placedY: wantY
+                property real fit: 1
+                onWantYChanged: root.queueRestack()
+                onHeightChanged: root.queueRestack()
+                onActiveChanged: root.queueRestack()
+                onItemChanged: root.queueRestack()
+                scale: fit
+                transformOrigin: Item.TopRight
                 // Left of the desk's bracket when it shows, never over it.
                 x: root.cardsWidth - root.stripWidth + Math.min(block.x, root.superOpen ? root.stripWidth - root.backingWidth - (desk.carded ? 9 : 21) : block.x) - width - 7
-                y: desk.y + cell.y + Math.max(0, cell.height - height) * (cell.tagMoving ? root.tagAt(cell.tagBegan) : 0.5)
+                y: placedY
+                Behavior on y { NumberAnimation { duration: root.dur(200); easing.type: Easing.OutCubic } }
                 sourceComponent: HudCard {
                   bar: root
                   shown: tagCard.wanted
