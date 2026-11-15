@@ -195,6 +195,19 @@ Item {
   // Red, orange, yellow and green with the level, on battery or charging; green
   // when plugged in and not charging.
   readonly property color batteryColor: Qt.hsla((batteryMode === "discharging" || batteryMode === "charging" ? Math.min(Math.max(batteryPercent, 0), 100) / 100 : 1) / 3, 0.75, 0.5, 1)
+  // Under 9 % on battery, a card beside the battery as a desk's tags: in full
+  // view for 90 seconds, then faded until it is plugged in or clicked.
+  readonly property bool batteryLow: batteryMode === "discharging" && batteryPercent >= 0 && batteryPercent < 9
+  property bool batteryAlertFaded: false
+  property bool batteryAlertDismissed: false
+  function syncBatteryAlert() {
+    batteryAlertFaded = false
+    batteryAlertDismissed = false
+    if (batteryLow) batteryAlertTimer.restart()
+    else batteryAlertTimer.stop()
+  }
+  onBatteryLowChanged: syncBatteryAlert()
+  Timer { id: batteryAlertTimer; interval: root.tagMs; onTriggered: root.batteryAlertFaded = true }
   // What the battery's card shows, as in austraz.power; read only while the
   // pointer is on the battery.
   property string hoveredZone: ""
@@ -711,6 +724,7 @@ Item {
   Component.onCompleted: {
     iconScan.running = true
     syncLayout()
+    syncBatteryAlert()
   }
 
   // -------------------------------------------------------------- agents
@@ -2067,6 +2081,63 @@ Item {
               zoneHeight: batteryZone.height
 
             BatteryCard { bar: root }
+          }
+        }
+        // Low battery: a card beside it, as a desk's tags, out of the way
+        // while the battery's own card shows.
+        Loader {
+          id: batteryAlert
+          parent: cardLayer
+          readonly property bool wanted: root.batteryLow && !root.batteryAlertDismissed && root.cardZone !== "battery"
+          property bool held: false
+          readonly property bool faded: root.batteryAlertFaded && !root.numbersShown
+          readonly property bool clickNow: wanted && !faded
+          onWantedChanged: if (wanted) held = true
+          onClickNowChanged: root.setCardClickable(batteryAlert, clickNow)
+          Component.onCompleted: {
+            if (wanted) held = true
+            if (clickNow) root.setCardClickable(batteryAlert, true)
+            root.queueRestack()
+          }
+          onHeldChanged: root.tagCardsHeld += held ? 1 : -1
+          Component.onDestruction: {
+            if (held) root.tagCardsHeld -= 1
+            root.setCardClickable(batteryAlert, false)
+            root.queueRestack()
+          }
+          active: wanted || held
+          readonly property bool stacked: true
+          readonly property real wantY: batteryZone.y + Math.max(0, batteryZone.height - height) / 2
+          property real placedY: wantY
+          property real fit: 1
+          onWantYChanged: root.queueRestack()
+          onHeightChanged: root.queueRestack()
+          onActiveChanged: root.queueRestack()
+          onItemChanged: root.queueRestack()
+          scale: fit
+          transformOrigin: Item.TopRight
+          readonly property real fillX: root.stripWidth - root.cellWidth
+          x: root.cardsWidth - root.stripWidth + Math.min(fillX, root.superOpen ? root.stripWidth - root.backingWidth - 21 : fillX) - width - 7
+          y: placedY
+          Behavior on y { NumberAnimation { duration: root.dur(200); easing.type: Easing.OutCubic } }
+          sourceComponent: HudCard {
+            bar: root
+            shown: batteryAlert.wanted
+            faded: batteryAlert.faded
+            clickable: batteryAlert.clickNow
+            onClicked: {
+              root.batteryAlertDismissed = true
+              Quickshell.execDetached(["omarchy-shell", "austraz.power", "toggle"])
+            }
+            onClosed: batteryAlert.held = false
+            ink: root.alarm
+            head: "BATTERY"
+            status: "LOW"
+            title: root.batteryPercent + " %"
+            rows: root.batterySeconds > 0
+              ? [{ k: "LEFT", v: root.spanLabel(root.batterySeconds * 1000) },
+                 { k: "EMPTY", v: root.clockText(root.now.getTime() / 1000 + root.batterySeconds) }]
+              : []
           }
         }
         ZoneClick { zone: "battery"; command: ["omarchy-shell", "austraz.power", "toggle"] }

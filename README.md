@@ -49,7 +49,9 @@ chart.
   hours. Its colour goes from red through orange and yellow to green with the level,
   charging or not. Charging, with the hours to full in the empty part.
   On battery, blinking at
-  10 % or less, with the hours left in the filled part. Plugged in without
+  10 % or less, with the hours left in the filled part. Under 9 %, a red `LOW` card
+  shows beside it as a desk's do: in full view for 90 seconds, then faded
+  until it is plugged in; a click opens the Power panel and puts it away. Plugged in without
   charging, full and green, with the hours it would last if unplugged, from the
   median discharge rate of the last week.
 - **Limits**: the week below, filling from its bottom up, and its Fable share
