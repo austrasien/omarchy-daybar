@@ -1114,13 +1114,12 @@ Item {
   // A working agent shows by its white bar; with animations off its window
   // is filled in the dim green instead, so it still shows.
   readonly property bool anyWorking: Object.keys(states).some(function(a) { return root.states[a] === "working" })
-  // State tags: five minutes from a window's change of state, until its
-  // desk (or the scratchpad) is opened. Kept across shell restarts, and not
-  // touched just after a start, while the windows and agents come back.
-  readonly property int tagMs: 5 * 60000
-  // A message card is in full view for a minute: a lively conversation
-  // would otherwise hold it there.
-  readonly property var tagSpans: ({ default: tagMs, message: 60000 })
+  // State tags: 90 seconds in full view from a window's change of state,
+  // then faded until its desk (or the scratchpad) is opened. Kept across
+  // shell restarts, and not touched just after a start, while the windows
+  // and agents come back.
+  readonly property int tagMs: 90000
+  readonly property var tagSpans: ({ default: tagMs, message: tagMs })
   property var tags: ({})
   property real tagNow: Date.now()
   property bool tagsReady: false
@@ -1134,7 +1133,7 @@ Item {
     return ""
   }
   function tagOn(address) { var t = tags[address]; return !!t && t.until > tagNow }
-  // Past its five minutes a tag stays, faded to its text, until its desk
+  // Past its 90 seconds a tag stays, faded to its text, until its desk
   // is opened or its state changes.
   function tagKept(address) { var t = tags[address]; return !!t && t.until !== 0 && t.state !== "working" }
   function tagFaded(address) { return tagKept(address) && tags[address].until <= tagNow }
