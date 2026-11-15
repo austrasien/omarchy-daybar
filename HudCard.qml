@@ -67,6 +67,8 @@ Item {
   property bool clickable: false
   signal closed()
   signal clicked()
+  // A right click: put the card away without opening anything.
+  signal dismissed()
   width: 300
   height: hudBody.implicitHeight + 28
 
@@ -408,6 +410,7 @@ Item {
     visible: hudCard.clickable
     anchors.fill: parent
     cursorShape: Qt.PointingHandCursor
-    onClicked: hudCard.clicked()
+    acceptedButtons: Qt.LeftButton | Qt.RightButton
+    onClicked: mouse => mouse.button === Qt.RightButton ? hudCard.dismissed() : hudCard.clicked()
   }
 }

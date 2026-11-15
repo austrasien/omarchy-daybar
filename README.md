@@ -20,7 +20,9 @@ the time, this one the space.
   goes to: a blocked agent, else a finished one, else the oldest unread
   message; else Super+1…0, Super+S for the scratchpad), and beside `DONE`
   how long the turn took. **Click** the card to open that
-  window on its desk; until then it covers what is under it.
+  window on its desk; until then it covers what is under it. **Right-click** it to put it
+  away as if you had seen that desk, without going there (a blocked agent
+  keeps blinking on the rail). A faded card takes clicks again while Super is held.
 - A notification from an app whose window is on another desk shows the same
   kind of card by that window: `MESSAGE`, the sender as its title, the
   message under it (summarised when long). It is in full view for 90 seconds,
@@ -51,7 +53,7 @@ chart.
   On battery, blinking at
   10 % or less, with the hours left in the filled part. Under 9 %, a red `LOW` card
   shows beside it as a desk's do: in full view for 90 seconds, then faded
-  until it is plugged in; a click opens the Power panel and puts it away. Plugged in without
+  until it is plugged in; a click opens the Power panel and puts it away, a right click only puts it away. Plugged in without
   charging, full and green, with the hours it would last if unplugged, from the
   median discharge rate of the last week.
 - **Limits**: the week below, filling from its bottom up, and its Fable share

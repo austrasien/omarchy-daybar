@@ -1071,6 +1071,33 @@ Item {
     if (changed) agents = next
   }
 
+  // A card's right click: as if its desk had been opened, without going
+  // there. The message goes, a finished agent counts as seen, and a blocked
+  // one keeps blinking on the rail but loses its card.
+  function dismissCard(address) {
+    if (!address) return
+    if (messages[address]) dropMessage(address)
+    var changed = false, next = ({})
+    for (var k in agents) {
+      var agent = agents[k]
+      if (agent.state === "done" && agent.address === address) {
+        agent = { state: "idle", pids: agent.pids, address: agent.address }
+        changed = true
+      }
+      next[k] = agent
+    }
+    if (changed) agents = next
+    var t = tags[address]
+    if (t && t.until !== 0) {
+      var kept = ({})
+      for (var a in tags) kept[a] = tags[a]
+      kept[address] = { state: t.state, until: 0 }
+      tags = kept
+      tagNow = Date.now()
+      tagsFile.setText(JSON.stringify(kept) + "\n")
+    }
+  }
+
   function setUrgent(address, urgent) {
     var key = normalizeAddress(address)
     if (key === "" || (!!urgentAddresses[key]) === urgent) return
@@ -1951,6 +1978,7 @@ Item {
                   faded: tagCard.faded
                   clickable: tagCard.clickNow
                   onClicked: root.openCard(tagCard.said)
+                  onDismissed: root.dismissCard(tagCard.said.address)
                   onClosed: tagCard.held = false
                   ink: tagCard.said.alarm ? root.alarm : root.hud
                   head: "DESK " + (tagCard.said.desk > 0 ? root.roman(tagCard.said.desk) : tagCard.said.label)
@@ -2129,6 +2157,7 @@ Item {
               root.batteryAlertDismissed = true
               Quickshell.execDetached(["omarchy-shell", "austraz.power", "toggle"])
             }
+            onDismissed: root.batteryAlertDismissed = true
             onClosed: batteryAlert.held = false
             ink: root.alarm
             head: "BATTERY"
