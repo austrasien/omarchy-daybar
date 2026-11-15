@@ -20,9 +20,8 @@ the time, this one the space.
   goes to: a blocked agent, else a finished one, else the oldest unread
   message; else Super+1…0, Super+S for the scratchpad), and beside `DONE`
   how long the turn took. **Click** the card to open that
-  window on its desk; until then it covers what is under it. **Right-click** it to put it
-  away as if you had seen that desk, without going there (a blocked agent
-  keeps blinking on the rail). A faded card takes clicks again while Super is held.
+  window on its desk; until then it covers what is under it. **Right-click** it to put the card
+  away without going there: its cell keeps blinking until you open the desk. A faded card takes clicks again while Super is held.
 - A notification from an app whose window is on another desk shows the same
   kind of card by that window: `MESSAGE`, the sender as its title, the
   message under it (summarised when long). It is in full view for 90 seconds,

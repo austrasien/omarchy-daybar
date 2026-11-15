@@ -1071,22 +1071,11 @@ Item {
     if (changed) agents = next
   }
 
-  // A card's right click: as if its desk had been opened, without going
-  // there. The message goes, a finished agent counts as seen, and a blocked
-  // one keeps blinking on the rail but loses its card.
+  // A card's right click: the card goes, nothing else. Its cell keeps
+  // blinking, and a finished agent or a message stays unread, until the
+  // desk is opened.
   function dismissCard(address) {
     if (!address) return
-    if (messages[address]) dropMessage(address)
-    var changed = false, next = ({})
-    for (var k in agents) {
-      var agent = agents[k]
-      if (agent.state === "done" && agent.address === address) {
-        agent = { state: "idle", pids: agent.pids, address: agent.address }
-        changed = true
-      }
-      next[k] = agent
-    }
-    if (changed) agents = next
     var t = tags[address]
     if (t && t.until !== 0) {
       var kept = ({})
