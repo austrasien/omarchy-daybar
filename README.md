@@ -95,7 +95,8 @@ then types itself out under the title as the day tape's card does.
 Summaries outlive a shell restart, until the next boot.
 
 The scripts that report Claude Code (local, and in tmux on a remote host),
-with the summaries made on a local model, are in [`reporters/`](reporters/).
+with the summaries made by Claude Haiku (a local model when it fails), are in
+[`reporters/`](reporters/).
 
 ## Install
 
