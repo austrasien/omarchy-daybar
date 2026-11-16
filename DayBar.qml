@@ -25,6 +25,7 @@ Item {
   readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
   readonly property string configPath: home + "/.config/omarchy/daybar.json"
   function binPath(name) { return Qt.resolvedUrl("bin/" + name).toString().replace(/^[a-z]+:\/\//, "") }
+  function reporterPath(name) { return Qt.resolvedUrl("reporters/" + name).toString().replace(/^[a-z]+:\/\//, "") }
 
   // ------------------------------------------------------------ config
 
@@ -487,7 +488,7 @@ Item {
     for (var k in messages) if (k !== address) next[k] = messages[k]
     messages = next
     if (summaries[gone.id] !== undefined) dropSummary(gone.id)
-    if (summarizing[gone.id] !== undefined) dropSummarizing(gone.id)
+    cancelSummary(gone.id)
   }
 
   function isMessageId(id) {
@@ -955,7 +956,10 @@ Item {
     if (!address) address = Model.agentPinAddress(pids, allWindows, focusedAddress)
     var agent = { state: reported, pids: pids, address: address }
     if (reported === "done" && !(prev && prev.state === "done")) flashDone(agent)
-    if (reported === "done" && agentInView(agent)) agent.state = "idle"
+    if (reported === "done" && agentInView(agent)) {
+      agent.state = "idle"
+      cancelSummary(session)
+    }
     next[session] = agent
     agents = next
   }
@@ -1001,6 +1005,13 @@ Item {
     var next = ({})
     for (var k in summarizing) if (k !== session) next[k] = summarizing[k]
     summarizing = next
+  }
+
+  // The card is seen (or gone): its summary is no longer wanted. The
+  // reporter stops before its next model call and kills the one running.
+  function cancelSummary(session) {
+    if (summarizing[session] !== undefined) dropSummarizing(session)
+    Quickshell.execDetached([reporterPath("agent-summary"), "--cancel", String(session)])
   }
 
   // May come just before the agent's own `done`: not tied to its state.
@@ -1065,6 +1076,7 @@ Item {
       if (agent.state === "done" && agentInView(agent)) {
         agent = { state: "idle", pids: agent.pids, address: agent.address }
         changed = true
+        cancelSummary(k)
       }
       next[k] = agent
     }

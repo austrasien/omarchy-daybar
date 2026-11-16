@@ -3,6 +3,7 @@
 
 Usage: agent-summary <session> <turn> < hook.json        (Claude Code Stop hook)
        agent-summary <session> <turn> --text < reply.txt (any other agent)
+       agent-summary --cancel <session>                  (the day bar, card seen)
 
 Reads the last assistant reply (the hook's `last_assistant_message`, else the
 transcript), asks Claude Haiku (`claude -p`, no settings, so no hooks) for one
@@ -15,10 +16,17 @@ the local model through npu-queue at background priority, which loads it on the
 NPU if needed. Only when <turn> is still the session's latest Stop: a newer
 turn makes the result stale. Silent on every failure: the card then shows its
 title alone.
+
+Each run leads its own process group and leaves `<session>.pid` ("<turn> <pid>")
+beside the turn stamp. Once the card is seen (its desk opened), the day bar runs
+`--cancel`: the stamp becomes "seen", so no further model call starts, and the
+group (with a running `claude -p`) gets SIGTERM. npu-queue drops a request
+whose client hung up while it waited.
 """
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -133,14 +141,16 @@ def summarise(text, session, turn):
     user = ("Voici ce que tu viens de me dire :\n\n" + text
             + "\n\nRésume-le-moi en une phrase, toi-même.")
     for attempt in range(1, HAIKU_TRIES + 1):
+        if not still_latest(session, turn):
+            return ""
         try:
             return ask_haiku(user)
         except subprocess.TimeoutExpired:
             log("haiku try %d timed out for %s" % (attempt, session))
         except Exception as exc:  # offline, rate limit, claude missing
             log("haiku try %d failed for %s: %s" % (attempt, session, exc))
-        if not still_latest(session, turn):
-            return ""
+    if not still_latest(session, turn):
+        return ""
     log("falling back to local model for %s" % session)
     return ask_local(user)
 
@@ -192,10 +202,92 @@ def still_latest(session, turn):
         return False
 
 
+def safe_id(session):
+    """As spaces-agent.sh names the stamp files."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", session) or "unknown"
+
+
+def pid_file(session):
+    return TURN_DIR / (session + ".pid")
+
+
+def own_group(session, turn):
+    """Lead a process group (so --cancel can stop `claude -p` too) and say so."""
+    try:
+        os.setsid()
+    except OSError:  # already a session leader (spaces-agent.sh runs us via setsid)
+        pass
+    try:
+        TURN_DIR.mkdir(parents=True, exist_ok=True)
+        pid_file(session).write_text("%s %d\n" % (turn, os.getpid()))
+    except OSError:
+        pass
+
+
+def drop_pid_file(session):
+    try:
+        f = pid_file(session)
+        if f.read_text().split()[1] == str(os.getpid()):
+            f.unlink()
+    except (OSError, IndexError):
+        pass
+
+
+def cancel(session):
+    """The card was seen: no summary is wanted for the session's current turn.
+
+    The run may not have started yet (the bar hears `done` while the hook is
+    still launching it): wait a moment for its pid file.
+    """
+    session = safe_id(session)
+    deadline = time.monotonic() + 3
+    while True:
+        try:
+            turn, pid = pid_file(session).read_text().split()[:2]
+            current = (TURN_DIR / session).read_text().strip()
+        except (OSError, ValueError):
+            turn = pid = current = ""
+        if turn and turn == current:
+            break
+        if time.monotonic() > deadline:
+            return
+        time.sleep(0.1)
+    try:
+        (TURN_DIR / session).write_text("seen\n")
+    except OSError:
+        pass
+    try:
+        pid = int(pid)
+        if b"agent-summary" not in Path("/proc/%d/cmdline" % pid).read_bytes():
+            return
+        if os.getpgid(pid) != pid:
+            return
+        os.killpg(pid, signal.SIGTERM)
+        log("cancelled %s (card seen)" % session)
+    except (OSError, ValueError):
+        pass
+
+
+def on_term(signum, frame):
+    raise SystemExit(0)
+
+
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--cancel":
+        cancel(sys.argv[2])
+        return
     if len(sys.argv) < 3:
         return
     session, turn = sys.argv[1], sys.argv[2]
+    signal.signal(signal.SIGTERM, on_term)
+    own_group(session, turn)
+    try:
+        run(session, turn)
+    finally:
+        drop_pid_file(session)
+
+
+def run(session, turn):
     raw = sys.stdin.read()
     if "--text" in sys.argv[3:]:
         text = raw
