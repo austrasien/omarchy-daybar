@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Summarise an agent's last reply on the local NPU model, for the day bar.
+"""Summarise an agent's last reply for the day bar (Claude Haiku, local fallback).
 
 Usage: agent-summary <session> <turn> < hook.json        (Claude Code Stop hook)
        agent-summary <session> <turn> --text < reply.txt (any other agent)
 
 Reads the last assistant reply (the hook's `last_assistant_message`, else the
-transcript), asks the pinned model through npu-queue at background priority
-for one short sentence, and hands it to the day bar:
+transcript), asks Claude Haiku (`claude -p`, no settings, so no hooks) for one
+short sentence, and hands it to the day bar:
 
     omarchy-shell austraz.daybar summary <session> <text>
 
-Only when <turn> is still the session's latest Stop: a newer turn makes the
-result stale. Silent on every failure: the card then shows its title alone.
+Haiku gets HAIKU_TRIES attempts (offline, rate limit...); the next one goes to
+the local model through npu-queue at background priority, which loads it on the
+NPU if needed. Only when <turn> is still the session's latest Stop: a newer
+turn makes the result stale. Silent on every failure: the card then shows its
+title alone.
 """
 import json
 import os
@@ -22,6 +25,9 @@ import time
 import urllib.request
 from pathlib import Path
 
+HAIKU_MODEL = "haiku"
+HAIKU_TRIES = 2
+HAIKU_TIMEOUT = 15  # ~3 s online; offline, claude hangs until this
 URL = "http://127.0.0.1:13306/api/v1/chat/completions"
 MODEL = "qwen3.6-moe-35b-a3b-FLM:nothink"
 MAX_INPUT = 6000
@@ -30,7 +36,8 @@ LOG = Path.home() / ".local/state/omarchy/agent-summary.log"
 PROMPT = (
     "Tu es l'agent qui vient d'écrire le message qu'on va te montrer, à l'intention "
     "de ton utilisateur. Redis-lui l'essentiel toi-même, à la première personne, "
-    "en une ou deux phrases courtes (30 mots au plus), dans la langue du message. "
+    "en une ou deux phrases courtes, 30 mots au plus, jamais davantage, dans la langue "
+    "du message. Garde seulement le résultat et ce qui attend une réponse. "
     "Pas de markdown, pas de guillemets, pas de préambule : seulement ta phrase."
 )
 
@@ -103,17 +110,49 @@ def reply_of(hook):
     return ""
 
 
-def summarise(text):
+def clean(out):
+    return " ".join(out.replace("*", "").replace("`", "").split()).strip(" \"'«»")[:600]
+
+
+def ask_haiku(user):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CODE_") and k != "CLAUDECODE"}
+    r = subprocess.run(
+        ["claude", "-p", "--model", HAIKU_MODEL, "--tools", "", "--strict-mcp-config",
+         "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence",
+         "--output-format", "text", "--system-prompt", PROMPT],
+        input=user, capture_output=True, text=True, timeout=HAIKU_TIMEOUT, cwd="/tmp", env=env)
+    out = clean(r.stdout)
+    if r.returncode != 0 or not out:
+        raise RuntimeError("claude exit %s: %s" % (r.returncode, (r.stderr or r.stdout).strip()[-200:]))
+    return out
+
+
+def summarise(text, session, turn):
     if len(text) > MAX_INPUT:
         text = text[: MAX_INPUT // 3] + "\n[…]\n" + text[-2 * MAX_INPUT // 3:]
+    user = ("Voici ce que tu viens de me dire :\n\n" + text
+            + "\n\nRésume-le-moi en une phrase, toi-même.")
+    for attempt in range(1, HAIKU_TRIES + 1):
+        try:
+            return ask_haiku(user)
+        except subprocess.TimeoutExpired:
+            log("haiku try %d timed out for %s" % (attempt, session))
+        except Exception as exc:  # offline, rate limit, claude missing
+            log("haiku try %d failed for %s: %s" % (attempt, session, exc))
+        if not still_latest(session, turn):
+            return ""
+    log("falling back to local model for %s" % session)
+    return ask_local(user)
+
+
+def ask_local(user):
     body = json.dumps({
         "model": MODEL,
         "max_tokens": 160,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": PROMPT},
-            {"role": "user", "content": "Voici ce que tu viens de me dire :\n\n" + text
-             + "\n\nRésume-le-moi en une phrase, toi-même."},
+            {"role": "user", "content": user},
         ],
     }).encode()
     req = urllib.request.Request(URL, data=body, headers={
@@ -123,9 +162,7 @@ def summarise(text):
     })
     with urllib.request.urlopen(req, timeout=300) as resp:
         data = json.load(resp)
-    out = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-    out = " ".join(out.replace("*", "").replace("`", "").split()).strip(" \"'«»")
-    return out[:600]
+    return clean((data.get("choices") or [{}])[0].get("message", {}).get("content") or "")
 
 
 SHORT_WORDS = 30
@@ -172,7 +209,7 @@ def main():
     if not text.strip():
         log("no reply for %s" % session)
         return
-    # Already short: shown as it is, at once, and the NPU stays free.
+    # Already short: shown as it is, at once, no model call.
     short = plain(text)
     if len(short.split()) <= SHORT_WORDS:
         if still_latest(session, turn):
@@ -182,8 +219,8 @@ def main():
     # The card's reticle turns until the summary (or its failure) comes.
     tell_bar("summarizing", session)
     try:
-        summary = summarise(text)
-    except Exception as exc:  # NPU down, queue full, timeout: the card goes without.
+        summary = summarise(text, session, turn)
+    except Exception as exc:  # Haiku and NPU both failed: the card goes without.
         log("summary failed for %s: %s" % (session, exc))
         summary = ""
     if not still_latest(session, turn):
