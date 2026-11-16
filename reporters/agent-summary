@@ -27,7 +27,7 @@ from pathlib import Path
 
 HAIKU_MODEL = "haiku"
 HAIKU_TRIES = 2
-HAIKU_TIMEOUT = 5  # ~3 s online; offline, claude hangs until this
+HAIKU_TIMEOUT = 7  # ~3 s online; offline, claude hangs until this
 URL = "http://127.0.0.1:13306/api/v1/chat/completions"
 MODEL = "qwen3.6-moe-35b-a3b-FLM:nothink"
 MAX_INPUT = 6000
