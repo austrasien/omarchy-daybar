@@ -106,7 +106,9 @@ Item {
       var r = ipc.reserved
       if (r && r.length === 4 && JSON.stringify(r) !== JSON.stringify(reserved)) reserved = r
     }
-    if (known && special !== scratchpadShown) scratchpadShown = special
+    // Only until the first event: refreshMonitors() answers later, so the
+    // object read here still holds the state from before that event.
+    if (known && !scratchpadEventSeen && special !== scratchpadShown) scratchpadShown = special
   }
 
   readonly property var targetScreen: {
@@ -512,6 +514,7 @@ Item {
   readonly property int summaryWaitMs: 10 * 60000
   property var urgentAddresses: ({})
   property bool scratchpadShown: false
+  property bool scratchpadEventSeen: false
   onScratchpadShownChanged: Qt.callLater(acknowledgeAgents)
   property bool numbersShown: false
   property string lastActiveEvent: ""
@@ -1394,6 +1397,7 @@ Item {
         break
       case "activespecial":
       case "activespecialv2":
+        root.scratchpadEventSeen = true
         root.scratchpadShown = String(event.data).indexOf("special:scratchpad") !== -1
         refreshDebounce.restart()
         break
@@ -1447,7 +1451,7 @@ Item {
     root.revision
     var byId = ({})
     function desk(id) {
-      if (!byId[id]) byId[id] = { id: id, current: id < 0 ? root.scratchpadShown : id === root.currentWorkspace, windows: [] }
+      if (!byId[id]) byId[id] = { id: id, current: id < 0 ? root.scratchpadShown : !root.scratchpadShown && id === root.currentWorkspace, windows: [] }
       return byId[id]
     }
     for (var i = 0; i < allWindows.length; i++) {
